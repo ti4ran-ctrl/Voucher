@@ -1,17 +1,6 @@
 ```react
 import React, { useState, useEffect, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { Upload, Plus, CheckCircle, Trash2, LogOut, FileSpreadsheet, User, Search, AlertCircle, Smartphone, Download, MapPin, CreditCard, ChevronLeft, Filter, Star, Sparkles } from 'lucide-react';
-
-// --- Firebase Configuration ---
-const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-const DATA_COLLECTION = 'vouchers';
 
 // --- System Configuration ---
 const AREA_MANAGERS = {
@@ -106,7 +95,6 @@ const loadXlsx = () => {
 };
 
 export default function App() {
-  const [user, setUser] = useState(null);
   const [authRole, setAuthRole] = useState(null); 
   const [managerName, setManagerName] = useState('');
   const [vouchers, setVouchers] = useState([]);
@@ -130,32 +118,36 @@ export default function App() {
     document.getElementsByTagName('head')[0].appendChild(meta);
   }, []);
 
+  // טעינת נתונים ראשונית מ-localStorage
   useEffect(() => {
-    const initAuth = async () => {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
-        await signInAnonymously(auth);
+    const r = sessionStorage.getItem('v_role');
+    const n = sessionStorage.getItem('v_name');
+    if (r) { 
+      setAuthRole(r); 
+      setManagerName(n || ''); 
+    }
+
+    const loadLocalData = () => {
+      try {
+        const localData = localStorage.getItem('vouchers_data');
+        if (localData) {
+          setVouchers(JSON.parse(localData));
+        }
+      } catch (e) {
+        console.error("שגיאה בטעינת נתונים", e);
       }
+      setLoading(false);
     };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      const r = sessionStorage.getItem('v_role');
-      const n = sessionStorage.getItem('v_name');
-      if (r) { setAuthRole(r); setManagerName(n || ''); }
-    });
-    return () => unsubscribe();
+
+    loadLocalData();
   }, []);
 
+  // שמירת נתונים ל-localStorage בכל שינוי במערך השוברים
   useEffect(() => {
-    if (!user || !authRole) { setLoading(false); return; }
-    const q = collection(db, 'artifacts', appId, 'public', 'data', DATA_COLLECTION);
-    return onSnapshot(q, (s) => {
-      setVouchers(s.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
-    }, () => setLoading(false));
-  }, [user, authRole]);
+    if (!loading) {
+      localStorage.setItem('vouchers_data', JSON.stringify(vouchers));
+    }
+  }, [vouchers, loading]);
 
   const agencies = useMemo(() => {
     const set = new Set(vouchers.map(v => v.agency).filter(Boolean));
@@ -186,7 +178,6 @@ export default function App() {
       sessionStorage.setItem('v_role', role);
       sessionStorage.setItem('v_name', name);
       
-      // Trigger short welcome banner
       setShowWelcome(true);
       setTimeout(() => setShowWelcome(false), 1500);
       return;
@@ -195,23 +186,22 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    setAuthRole(null); sessionStorage.clear();
+    setAuthRole(null); 
+    sessionStorage.clear();
   };
 
-  const updateStatus = async (id, s) => {
+  const updateStatus = (id, s) => {
     setProcessingId(id);
-    setTimeout(async () => {
-      try {
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', DATA_COLLECTION, id), { status: s });
-        showToast('בוצע בהצלחה');
-      } catch (e) { console.error(e); }
+    setTimeout(() => {
+      setVouchers(prev => prev.map(v => v.id === id ? { ...v, status: s } : v));
+      showToast('בוצע בהצלחה');
       setProcessingId(null);
     }, 350);
   };
 
-  const deleteItem = async (id) => {
+  const deleteItem = (id) => {
     if (window.confirm('מחיקת רשומה?')) {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', DATA_COLLECTION, id));
+      setVouchers(prev => prev.filter(v => v.id !== id));
     }
   };
 
@@ -246,7 +236,11 @@ export default function App() {
             const n = name.toLowerCase();
             return n.includes(targetMonthName.toLowerCase()) && n.includes(targetYearShort);
           });
-          if (!targetSheetName) { alert(`לשונית ${targetMonthName} לא נמצאה`); setIsUploading(false); return; }
+          if (!targetSheetName) { 
+            alert(`לשונית ${targetMonthName} לא נמצאה`); 
+            setIsUploading(false); 
+            return; 
+          }
           const sheet = workbook.Sheets[targetSheetName];
           const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
           let headerIdx = -1;
@@ -258,8 +252,10 @@ export default function App() {
           const dataRows = rows.slice(headerIdx + 1);
           const findCol = (names) => headers.findIndex(h => names.some(n => h.includes(n)));
           const colAgent = findCol(['סוכן']), colImporter = findCol(['יבואן']), colAgency = findCol(['סוכנות']), colCustomer = findCol(['לקוח']), colAmount = findCol(['תווים', 'סכום']), colManager = findCol(['מנהל']);
-          const batch = writeBatch(db);
+          
           let count = 0;
+          const newVouchers = [];
+
           for (const row of dataRows) {
             const customer = String(row[colCustomer] || '').trim();
             if (!customer || customer === "לקוח") continue;
@@ -271,8 +267,9 @@ export default function App() {
             else if (rawManager.includes('אהוד') || rawManager.includes('אודי')) finalManager = 'אהוד מועלם';
             else if (rawManager.includes('עזרא')) finalManager = 'עזרא ירימי';
             if (!finalManager) finalManager = authRole === 'manager' ? managerName : 'טירן סיגורה';
-            const docId = `v_${Date.now()}_${count}`;
-            batch.set(doc(collection(db, 'artifacts', appId, 'public', 'data', DATA_COLLECTION), docId), {
+            
+            newVouchers.push({
+              id: `v_${Date.now()}_${count}`,
               agentName: String(row[colAgent] || '').trim(),
               importer: String(row[colImporter] || '').trim(),
               agency: String(row[colAgency] || '').trim(),
@@ -286,8 +283,10 @@ export default function App() {
             });
             count++;
           }
-          if (count > 0) await batch.commit();
-          alert(`נטענו ${count} רשומות`);
+          if (count > 0) {
+            setVouchers(prev => [...prev, ...newVouchers]);
+            alert(`נטענו ${count} רשומות`);
+          }
         } catch (e) { alert("שגיאה בעיבוד"); }
         setIsUploading(false);
       };
@@ -326,7 +325,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F0F2F5] text-[#262626] font-sans selection:bg-[#f6d19c]/30 overflow-x-hidden antialiased" dir="rtl">
       
-      {/* Welcome Banner - Appears briefly after login */}
       {showWelcome && (
         <div className="fixed inset-x-4 top-20 z-[100] animate-in slide-in-from-top-4 duration-300">
           <div className="max-w-md mx-auto bg-gradient-to-l from-[#262626] to-[#404040] p-4 rounded-2xl shadow-2xl border-r-4 border-[#9c7229] flex items-center justify-between">
@@ -344,13 +342,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Header */}
       <nav className="bg-[#262626] text-white shadow-[0_4px_20px_rgba(0,0,0,0.4)] sticky top-0 z-50 border-b border-[#9c7229]/40">
         <div className="max-w-3xl mx-auto px-4">
           <div className="flex justify-between items-center py-3">
             <div className="flex flex-col">
               <Logo className="h-7 md:h-9 w-auto text-white" />
-              {/* Permanent small manager tag */}
               <div className="mt-1 flex items-center gap-1 bg-[#9c7229]/20 px-1.5 py-0.5 rounded border border-[#9c7229]/30 w-fit">
                 <span className="text-[10px] font-bold text-[#f6d19c] whitespace-nowrap opacity-90">
                    {managerName}
@@ -366,7 +362,6 @@ export default function App() {
 
       <main className="max-w-3xl mx-auto p-4 space-y-6 pb-24">
         
-        {/* Search & Filters */}
         <div className="bg-white rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 p-4 space-y-4 mt-2">
           <div className="relative group">
             <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-[#d4a55f] transition-colors" size={16} />
@@ -420,14 +415,12 @@ export default function App() {
           </div>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-3 gap-3.5">
           <StatBox label="חלוקה" val={stats.total} theme="gold" />
           <StatBox label="יתרה" val={stats.pending} theme="dark" />
           <StatBox label="נמסר" val={stats.delivered} theme="outline" />
         </div>
 
-        {/* List */}
         <div className="space-y-4">
           {loading ? (
             <div className="py-12 flex justify-center"><div className="w-6 h-6 border-2 border-[#9c7229] border-t-transparent animate-spin rounded-full"></div></div>
@@ -483,7 +476,6 @@ export default function App() {
         </div>
       </main>
 
-      {/* Action Toasts */}
       {toast && (
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5">
           <div className="bg-[#262626] text-[#f6d19c] px-6 py-2.5 rounded-full shadow-2xl text-[13px] font-bold flex items-center gap-2.5 border border-[#9c7229]/30">
@@ -548,5 +540,6 @@ function LoginScreen({ onLogin }) {
     </div>
   );
 }
+
 
 ```
