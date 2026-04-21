@@ -1,637 +1,154 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
-import { Upload, Plus, CheckCircle, Trash2, LogOut, FileSpreadsheet, User, Search, AlertCircle, Smartphone, Download, MapPin, CreditCard, ChevronLeft, Filter, Star, Sparkles, Check } from 'lucide-react';
+import { Search, LogOut, CheckCircle, Database, Trash2, User, Building, ChevronRight, ChevronLeft, Tag } from 'lucide-react';
 
-// — Firebase Configuration —
-const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-const DATA_COLLECTION = 'vouchers';
+const GOOGLE_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbzUsBjZPvcUHyP2W10DWpvfK-aWJQ2E8Vt0YnuuOpWAW0VDFGNL-MdV8auBd4PwjLbB/exec";
 
-// — System Configuration —
 const AREA_MANAGERS = {
-  '037122595': 'טירן סיגורה',
-  '040476012': 'נחום נחום',
-  '034887919': 'שי סיידון',
-  '021710553': 'אהוד מועלם',
-  '066436098': 'עזרא ירימי'
+'037122595': 'טירן סיגורה',
+'040476012': 'נחום נחום',
+'034887919': 'שי סיידון',
+'021710553': 'אהוד מועלם',
+'066436098': 'עזרא ירימי'
 };
+
 const ADMIN_CREDENTIAL = 'credible';
 
-const HEBREW_MONTHS = {
-  '01': 'ינואר', '02': 'פברואר', '03': 'מרץ', '04': 'אפריל',
-  '05': 'מאי', '06': 'יוני', '07': 'יולי', '08': 'אוגוסט',
-  '09': 'ספטמבר', '10': 'אוקטובר', '11': 'נובמבר', '12': 'דצמבר'
-};
-
-const MANAGER_COLORS = {
-  'טירן סיגורה': '#3b82f6',
-  'נחום נחום': '#8b5cf6',
-  'שי סיידון': '#10b981',
-  'אהוד מועלם': '#f59e0b',
-  'עזרא ירימי': '#ef4444',
-};
-
-const Logo = ({ className = "h-8 md:h-10 w-auto" }) => (
-  <svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" xmlnsXlink="http://www.w3.org/1999/xlink" viewBox="0 0 301.68 65.71" className={className}>
-    <defs>
-      <linearGradient id="linear-gradient" x1="209.98" y1="58.62" x2="301.68" y2="58.62" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stopColor="#f6d19c" />
-        <stop offset=".36" stopColor="#d4a55f" />
-        <stop offset=".69" stopColor="#c89644" />
-        <stop offset="1" stopColor="#9c7229" />
-      </linearGradient>
-      <linearGradient id="linear-gradient-2" x1="0" y1="58.62" x2="91.7" y2="58.62" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stopColor="#9c7229" />
-        <stop offset=".31" stopColor="#c89644" />
-        <stop offset=".64" stopColor="#d4a55f" />
-        <stop offset="1" stopColor="#f6d19c" />
-      </linearGradient>
-      <linearGradient id="linear-gradient-3" x1="205.46" y1="34.15" x2="234.12" y2="5.49" xlinkHref="#linear-gradient-2" />
-      <linearGradient id="linear-gradient-4" x1="231.49" y1="36.91" x2="256.16" y2="12.23" xlinkHref="#linear-gradient-2" />
-      <linearGradient id="linear-gradient-5" x1="253.6" y1="33.89" x2="282.52" y2="4.96" xlinkHref="#linear-gradient-2" />
-      <linearGradient id="linear-gradient-6" x1="278.37" y1="35.09" x2="304.84" y2="8.61" xlinkHref="#linear-gradient-2" />
-      <linearGradient id="linear-gradient-7" x1="2.17" y1="41.24" x2="41.51" y2="1.89" xlinkHref="#linear-gradient-2" />
-    </defs>
-    <g id="Layer_1-2" data-name="Layer 1">
-      <g>
-        <g>
-          <path fill="currentColor" d="m100.87,59.41v-3.86c0-.37-.12-.49-.46-.49h-.14c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h.61c.68,0,1.11.35,1.11,1.03v4.35c0,.14-.08.21-.21.21h-.69c-.14,0-.21-.08-.21-.21Z" />
-          <path fill="currentColor" d="m110.13,62.95l-3.49-5.02c-1.32.77-1.6,2.09-1.6,3.1,0,.91.17,1.38.31,1.84.05.14-.05.23-.18.23h-.68c-.15,0-.21-.09-.26-.23-.14-.43-.31-1.04-.31-1.9,0-1.46.48-3.03,2.1-3.92l-1.92-2.76c-.09-.12-.03-.25.11-.25h.86c.12,0,.18.05.26.15l3.26,4.68c1.4-.71,1.69-1.9,1.69-2.93,0-.74-.15-1.21-.29-1.69-.03-.12.04-.21.18-.21h.69c.14,0,.2.09.25.23.14.41.29,1,.29,1.78,0,1.41-.51,2.86-2.2,3.72l2.15,3.09c.09.12.03.25-.11.25h-.86c-.12,0-.18-.05-.26-.15Z" />
-          <path fill="currentColor" d="m118.85,62.89v-5.7c0-1.44-.43-2.1-2.04-2.1h-3.49c-.14,0-.21-.08-.21-.21v-.61c0-.14.08-.21.21-.21h3.96c1.83,0,2.72,1.06,2.72,2.67v6.17c0,.14-.08.21-.21.21h-.72c-.14,0-.21-.08-.21-.21Z" />
-          <path fill="currentColor" d="m122.48,59.06v-4.81c0-.14.08-.21.21-.21h.72c.14,0,.21.08.21.21v3.62h.68c1.49,0,2.06-.52,2.06-1.78v-1.84c0-.14.08-.21.21-.21h.69c.14,0,.21.08.21.21v1.97c0,1.6-.83,2.66-2.99,2.66h-.86c.03,2.47,1.12,3.23,3.29,3.23s3.27-.78,3.27-3.35v-4.5c0-.14.08-.21.21-.21h.72c.14,0,.21.08.21.21v4.81c0,2.84-1.52,4.16-4.42,4.16s-4.44-1.32-4.44-4.16Z" />
-          <path fill="currentColor" d="m139.73,62.95l-3.49-5.02c-1.32.77-1.6,2.09-1.6,3.1,0,.91.17,1.38.31,1.84.05.14-.05.23-.18.23h-.68c-.15,0-.21-.09-.26-.23-.14-.43-.31-1.04-.31-1.9,0-1.46.48-3.03,2.1-3.92l-1.92-2.76c-.09-.12-.03-.25.11-.25h.86c.12,0,.18.05.26.15l3.26,4.68c1.4-.71,1.69-1.9,1.69-2.93,0-.74-.15-1.21-.29-1.69-.03-.12.04-.21.18-.21h.69c.14,0,.2.09.25.23.14.41.29,1,.29,1.78,0,1.41-.51,2.86-2.2,3.72l2.15,3.09c.09.12.03.25-.11.25h-.86c-.12,0-.18-.05-.26-.15Z" />
-          <path fill="currentColor" d="m146.36,59.41v-3.86c0-.37-.12-.49-.46-.49h-.14c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h.61c.68,0,1.11.35,1.11,1.03v4.35c0,.14-.08.21-.21.21h-.69c-.14,0-.21-.08-.21-.21Z" />
-          <path fill="currentColor" d="m150.2,62.89v-7.33c0-.37-.12-.49-.46-.49h-.58c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h1.11c.68,0,1.09.35,1.09,1.03v7.82c0,.14-.08.21-.21.21h-.72c-.14,0-.21-.08-.21-.21Z" />
-          <path fill="currentColor" d="m154.09,62.89v-7.33c0-.37-.12-.49-.46-.49h-.58c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h1.11c.68,0,1.09.35,1.09,1.03v7.82c0,.14-.08.21-.21.21h-.72c-.14,0-.21-.08-.21-.21Z" />
-          <path fill="currentColor" d="m157.53,59.41v-3.86c0-.37-.12-.49-.46-.49h-.14c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h.61c.68,0,1.11.35,1.11,1.03v4.35c0,.14-.08.21-.21.21h-.69c-.14,0-.21-.08-.21-.21Z" />
-          <path fill="currentColor" d="m161.05,62.89v-.61c0-.14.08-.21.21-.21h.17c3.41,0,4.82-2.83,4.82-6.14v-.52c0-.2-.08-.31-.28-.31h-5.1c-.34,0-.52-.21-.52-.55v-1.97c0-.14.08-.21.21-.21h.71c.14,0,.21.08.21.21v1.47h5.25c.37,0,.64.28.64.66v1.55c0,3.64-1.98,6.85-5.81,6.85h-.32c-.14,0-.21-.08-.21-.21Z" />
-          <path fill="currentColor" d="m170.2,62.89v-7.33c0-.37-.12-.49-.46-.49h-.58c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h1.11c.68,0,1.09.35,1.09,1.03v7.82c0,.14-.08.21-.21.21h-.72c-.14,0-.21-.08-.21-.21Z" />
-          <path fill="currentColor" d="m176.45,65.5v-11.24c0-.14.08-.21.22-.21h.72c.14,0,.21.08.21.21v4.87h1.15c2.13,0,2.79-.86,2.79-2.32v-2.55c0-.14.08-.21.22-.21h.72c.14,0,.21.08.21.21v2.66c0,1.77-.91,3.26-3.62,3.26h-1.47v5.33c0,.14-.08.21-.21.21h-.72c-.14,0-.22-.08-.22-.21Z" />
-          <path fill="currentColor" d="m185.28,62.89v-7.33c0-.37-.12-.49-.46-.49h-.58c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h1.11c.68,0,1.09.35,1.09,1.03v7.82c0,.14-.08.21-.21.21h-.72c-.14,0-.21-.08-.21-.21Z" />
-          <path fill="currentColor" d="m187.92,62.89v-.61c0-.14.08-.21.21-.21h2.13l-1.69-7.8c-.03-.14.08-.21.21-.21h.74c.14,0,.18.08.21.21l1.67,7.79c2.03-.18,2.92-1.44,2.92-3.49v-4.3c0-.14.08-.21.21-.21h.72c.14,0,.21.08.21.21v4.75c0,2.4-1.52,4.1-4.15,4.1h-3.21c-.14,0-.21-.08-.21-.21Z" />
-          <path fill="currentColor" d="m197.71,59.41v-3.86c0-.37-.12-.49-.46-.49h-.14c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h.61c.68,0,1.11.35,1.11,1.03v4.35c0,.14-.08.21-.21.21h-.69c-.14,0-.21-.08-.21-.21Z" />
-          <path fill="currentColor" d="m201.1,59.41v-3.86c0-.37-.12-.49-.46-.49h-.14c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h.61c.68,0,1.11.35,1.11,1.03v4.35c0,.14-.08.21-.21.21h-.69c-.14,0-.21-.08-.21-.21Z" />
-        </g>
-        <rect fill="url(#linear-gradient)" x="209.98" y="58.3" width="91.7" height=".64" />
-        <rect fill="url(#linear-gradient-2)" y="58.3" width="91.7" height=".64" />
-        <g>
-          <path fill="currentColor" d="m59.83.12c-6.52,0-9.2,4.63-9.2,10.78v21.81c0,6.15,2.68,10.78,9.2,10.78s9.2-4.63,9.2-10.78v-4.87h-2.68v5.06c0,4.57-1.77,7.98-6.46,7.98s-6.46-3.41-6.46-7.98V10.72c0-4.57,1.77-8.04,6.46-8.04s6.46,3.47,6.46,8.04v3.72h2.68v-3.53c0-6.15-2.68-10.78-9.2-10.78Z" />
-          <path fill="currentColor" d="m91.63,31.38c0-4.63-1.77-7.74-6.15-8.71,4.2-.97,6.15-3.84,6.15-8.83v-3.72c0-6.03-2.62-9.63-9.14-9.63h-8.89v42.65h2.8v-19.07h4.45c4.87,0,7.98,1.58,7.98,7.25v6.7c0,2.32.18,3.84.91,5.12h2.92c-.91-1.4-1.03-3.35-1.03-5.12v-6.64Zm-15.23-9.87V3.05h6.03c4.63,0,6.4,2.74,6.4,7.31v4.02c0,5.73-2.92,7.13-7.92,7.13h-4.51Z" />
-          <polygon fill="currentColor" points="97.11 43.13 113.93 43.13 113.93 40.58 99.91 40.58 99.91 22.79 111.55 22.79 111.55 20.23 99.91 20.23 99.91 3.05 113.93 3.05 113.93 .49 97.11 .49 97.11 43.13" />
-          <path fill="currentColor" d="m127.88.49h-9.38v42.65h9.38c6.58,0,9.44-4.33,9.44-10.6V11.09c0-6.28-2.86-10.6-9.44-10.6Zm6.64,32.17c0,4.69-1.95,7.92-6.7,7.92h-6.52V3.05h6.52c4.69,0,6.7,3.23,6.7,7.92v21.69Z" />
-          <rect fill="currentColor" x="141.95" y=".49" width="2.8" height="42.65" />
-          <path fill="currentColor" d="m161.69,20.41c4.33-.91,5.61-3.78,5.61-8.41v-2.44c0-5.91-2.32-9.08-8.71-9.08h-8.96v42.65h9.14c6.52,0,9.32-3.72,9.32-9.87v-3.72c0-4.81-1.77-8.22-6.4-9.14Zm-9.26-17.36h6.09c4.57,0,5.97,2.32,5.97,6.76v2.74c0,5.42-2.32,6.76-7.31,6.76h-4.75V3.05Zm12.85,30.16c0,4.75-1.83,7.37-6.52,7.37h-6.34v-18.7h5.3c5.06,0,7.55,1.95,7.55,7.49v3.84Z" />
-          <polygon fill="currentColor" points="175.46 .49 172.65 .49 172.65 43.13 188.86 43.13 188.86 40.58 175.46 40.58 175.46 .49" />
-          <polygon fill="currentColor" points="209.88 3.05 209.88 .49 193.06 .49 193.06 43.13 209.88 43.13 209.88 40.58 195.87 40.58 195.87 22.79 207.5 22.79 207.5 20.23 195.87 20.23 195.87 3.05 209.88 3.05" />
-        </g>
-        <g>
-          <path fill="url(#linear-gradient-3)" d="m224.32.49h-9.87v42.65h6.7v-16.02h3.17c6.7,0,9.99-3.72,9.99-10.54v-5.54c0-6.82-3.29-10.54-9.99-10.54Zm3.29,16.51c0,3.05-1.16,4.02-3.29,4.02h-3.17V6.58h3.17c2.13,0,3.29.97,3.29,4.02v6.4Z" />
-          <polygon fill="url(#linear-gradient-4)" points="244.42 .49 237.72 .49 237.72 43.13 255.45 43.13 255.45 37.04 244.42 37.04 244.42 .49" />
-          <path fill="url(#linear-gradient-5)" d="m271.71,33.39c0,3.05-1.34,4.14-3.47,4.14s-3.47-1.1-3.47-4.14V.49h-6.7v32.47c0,6.82,3.41,10.72,9.99,10.72s9.99-3.9,9.99-10.72V.49h-6.34v32.9Z" />
-          <path fill="url(#linear-gradient-6)" d="m288.47,10.3c0-3.05,1.22-4.2,3.35-4.2s3.35,1.16,3.35,4.2v1.77h6.34v-1.34c0-6.82-3.35-10.72-9.87-10.72s-9.87,3.9-9.87,10.72c0,12.18,13.1,13.83,13.1,22.6,0,3.05-1.34,4.14-3.47,4.14s-3.47-1.1-3.47-4.14v-3.05h-6.34v2.62c0,6.82,3.41,10.72,9.99,10.72s9.99-3.9,9.99-10.72c0-12.18-13.1-13.83-13.1-22.6Z" />
-        </g>
-        <path fill="url(#linear-gradient-7)" d="m32.51,38.57h-4c-.99,0-1.79-.8-1.79-1.79v-1.55c-.03-.21-.06-.42-.06-.63v-9.22h-9.22c-.14,0-.28,0-.42-.02h-1.62c-.99,0-1.79-.8-1.79-1.79v-4c0-.99.8-1.79,1.79-1.79h11.26v-9.21c0-.22.02-.42.06-.63v-1.38c0-.99.8-1.79,1.79-1.79h4c.99,0,1.79.8,1.79,1.79v11.22h9.1V6.47c0-3.57-2.9-6.47-6.47-6.47H6.74C3.17,0,.27,2.9,.27,6.47v30.2c0,3.57,2.9,6.47,6.47,6.47h30.2c3.57,0,6.47-2.9,6.47-6.47v-11.28h-9.1v11.4c0,.99-.8,1.79-1.79,1.79Z" />
-      </g>
-    </g>
-  </svg>
-);
-
-const loadXlsx = () => {
-  return new Promise((resolve) => {
-    if (window.XLSX) return resolve(window.XLSX);
-    const script = document.createElement('script');
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-    script.onload = () => resolve(window.XLSX);
-    document.head.appendChild(script);
-  });
-};
-
-const managerColor = (name) => MANAGER_COLORS[name] || '#9ca3af';
+const HEBREW_MONTHS = [
+{ val: '09', name: 'ספטמבר', year: '25' },
+{ val: '10', name: 'אוקטובר', year: '25' },
+{ val: '11', name: 'נובמבר', year: '25' },
+{ val: '12', name: 'דצמבר', year: '25' },
+{ val: '01', name: 'ינואר', year: '26' },
+{ val: '02', name: 'פברואר', year: '26' },
+{ val: '03', name: 'מרץ', year: '26' },
+{ val: '04', name: 'אפריל', year: '26' },
+];
 
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [authRole, setAuthRole] = useState(null);
-  const [managerName, setManagerName] = useState('');
-  const [vouchers, setVouchers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [isUploading, setIsUploading] = useState(false);
-  const [toast, setToast] = useState(null);
-  const [processingId, setProcessingId] = useState(null);
-  const [showWelcome, setShowWelcome] = useState(false);
+const [authRole, setAuthRole] = useState(null);
+const [managerName, setManagerName] = useState('');
+const [vouchers, setVouchers] = useState([]);
+const [isSyncing, setIsSyncing] = useState(false);
+const [searchTerm, setSearchTerm] = useState('');
+const [toast, setToast] = useState(null);
+const [currentMonthIndex, setCurrentMonthIndex] = useState(7);
 
-  const now = new Date();
-  const [filterMonth, setFilterMonth] = useState((now.getMonth() + 1).toString().padStart(2, '0'));
-  const [filterYear, setFilterYear] = useState(now.getFullYear().toString());
-  const [filterManager, setFilterManager] = useState('All');
-  const [filterAgency, setFilterAgency] = useState('All');
-  const [filterStatus, setFilterStatus] = useState('All'); // New Status Filter
-  const [searchTerm, setSearchTerm] = useState('');
+const activePeriod = HEBREW_MONTHS[currentMonthIndex];
 
-  useEffect(() => {
-    const meta = document.createElement('meta');
-    meta.name = 'viewport';
-    meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0';
-    document.getElementsByTagName('head')[0].appendChild(meta);
+const fetchVouchers = async () => {
+setIsSyncing(true);
+try {
+const url = ${GOOGLE_SHEET_API_URL}?month=${activePeriod.val}&year=${activePeriod.year};
+const response = await fetch(url);
+const data = await response.json();
+if (data.error) { setVouchers([]); showToast(data.error); }
+else { setVouchers(Array.isArray(data) ? data : []); }
+} catch (e) { showToast("שגיאה בחיבור"); } finally { setIsSyncing(false); }
+};
 
-    const initAuth = async () => {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
-        await signInAnonymously(auth);
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      const r = sessionStorage.getItem('v_role');
-      const n = sessionStorage.getItem('v_name');
-      if (r) {
-        setAuthRole(r);
-        setManagerName(n || '');
-      }
-    });
-    return () => unsubscribe();
-  }, []);
+useEffect(() => {
+const r = sessionStorage.getItem('v_role');
+const n = sessionStorage.getItem('v_name');
+if (r) { setAuthRole(r); setManagerName(n); fetchVouchers(); }
+}, [currentMonthIndex]);
 
-  useEffect(() => {
-    if (!user || !authRole) {
-      setLoading(false);
-      return;
-    }
-    const q = collection(db, 'artifacts', appId, 'public', 'data', DATA_COLLECTION);
-    return onSnapshot(q, (s) => {
-      setVouchers(s.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
-    }, () => setLoading(false));
-  }, [user, authRole]);
+const handleLogin = (pin) => {
+let role = null; let name = '';
+if (pin === ADMIN_CREDENTIAL) { role = 'admin'; name = 'מנהל מערכת'; }
+else if (AREA_MANAGERS[pin]) { role = 'manager'; name = AREA_MANAGERS[pin]; }
+if (role) {
+setAuthRole(role); setManagerName(name);
+sessionStorage.setItem('v_role', role); sessionStorage.setItem('v_name', name);
+fetchVouchers();
+} else { alert("קוד שגוי"); }
+};
 
-  const agencies = useMemo(() => {
-    const set = new Set(vouchers.map(v => v.agency).filter(Boolean));
-    return Array.from(set).sort();
-  }, [vouchers]);
+const updateStatus = async (id, newStatus) => {
+const prev = [...vouchers];
+setVouchers(v => v.map(item => item.id == id ? { ...item, status: newStatus } : item));
+try {
+await fetch(GOOGLE_SHEET_API_URL, {
+method: 'POST',
+body: JSON.stringify({ id, status: newStatus, sheetName: ${activePeriod.name} ${activePeriod.year} })
+});
+showToast(עודכן ל-${newStatus});
+} catch (e) { setVouchers(prev); showToast("שגיאה בעדכון"); }
+};
 
-  const showToast = (msg) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2500);
-  };
+const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
-  const handleLogin = (pin) => {
-    const normalizedPin = pin.trim();
-    let role = null;
-    let name = '';
-    if (normalizedPin.toLowerCase() === ADMIN_CREDENTIAL.toLowerCase()) {
-      role = 'admin';
-      name = 'מנהל מערכת';
-    } else if (AREA_MANAGERS[normalizedPin]) {
-      role = 'manager';
-      name = AREA_MANAGERS[normalizedPin];
-    }
-    if (role) {
-      setAuthRole(role);
-      setManagerName(name);
-      sessionStorage.setItem('v_role', role);
-      sessionStorage.setItem('v_name', name);
-      setShowWelcome(true);
-      setTimeout(() => setShowWelcome(false), 1500);
-      return;
-    }
-    alert('קוד שגוי או לא מזוהה במערכת');
-  };
+const filteredData = useMemo(() => {
+return vouchers.filter(v => {
+const matchManager = authRole === 'admin' ? true : v.manager === managerName;
+const isNotDeleted = v.status !== 'לא נותנים';
+const s = searchTerm.toLowerCase();
+const matchSearch = !s || [v.customerName, v.agent, v.agency, v.importer].some(f => String(f || '').toLowerCase().includes(s));
+return matchManager && isNotDeleted && matchSearch;
+});
+}, [vouchers, authRole, managerName, searchTerm]);
 
-  const handleLogout = () => {
-    setAuthRole(null);
-    sessionStorage.clear();
-  };
+if (!authRole) return ;
 
-  const updateStatus = async (id, s) => {
-    setProcessingId(id);
-    setTimeout(async () => {
-      try {
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', DATA_COLLECTION, id), { status: s });
-        showToast('בוצע בהצלחה');
-      } catch (e) {
-        console.error(e);
-      }
-      setProcessingId(null);
-    }, 350);
-  };
+return (
 
-  const deleteItem = async (id) => {
-    if (window.confirm('מחיקת רשומה?')) {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', DATA_COLLECTION, id));
-    }
-  };
 
-  const handleExportToExcel = async () => {
-    const XLSX = await loadXlsx();
-    const dataToExport = filteredData.map(v => ({
-      'סוכן': v.agentName,
-      'סוכנות': v.agency,
-      'יבואן': v.importer,
-      'לקוח': v.customerName,
-      'מנהל אזור': v.manager,
-      'סכום': v.amount,
-      'סטטוס': v.status === 'pending' ? 'ממתין' : (v.status === 'delivered_digital' ? 'נמסר דיגיטלי' : 'נמסר'),
-      'חודש': v.month,
-      'שנה': v.year
-    }));
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Vouchers");
-    XLSX.writeFile(wb, `vouchers_${filterMonth}_${filterYear}.xlsx`);
-  };
 
-  const handleExcelUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setIsUploading(true);
-    try {
-      const XLSX = await loadXlsx();
-      const reader = new FileReader();
-      reader.onload = async (evt) => {
-        try {
-          const data = new Uint8Array(evt.target.result);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const targetMonthName = HEBREW_MONTHS[filterMonth];
-          const targetYearShort = filterYear.slice(-2);
-          const targetSheetName = workbook.SheetNames.find(name => {
-            const n = name.toLowerCase();
-            return n.includes(targetMonthName.toLowerCase()) && n.includes(targetYearShort);
-          });
-          if (!targetSheetName) {
-            alert(`לשונית ${targetMonthName} לא נמצאה`);
-            setIsUploading(false);
-            return;
-          }
-          const sheet = workbook.Sheets[targetSheetName];
-          const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-          let headerIdx = -1;
-          for (let i = 0; i < Math.min(25, rows.length); i++) {
-            if (rows[i].some(h => String(h).includes('לקוח') || String(h).includes('סוכן'))) {
-              headerIdx = i;
-              break;
-            }
-          }
-          if (headerIdx === -1) {
-            alert("כותרות לא זוהו");
-            setIsUploading(false);
-            return;
-          }
-          const headers = rows[headerIdx].map(h => String(h).trim());
-          const dataRows = rows.slice(headerIdx + 1);
-          const findCol = (names) => headers.findIndex(h => names.some(n => h.includes(n)));
-          const colAgent = findCol(['סוכן']),
-            colImporter = findCol(['יבואן']),
-            colAgency = findCol(['סוכנות']),
-            colCustomer = findCol(['לקוח']),
-            colAmount = findCol(['תווים', 'סכום']),
-            colManager = findCol(['מנהל']);
 
-          const batch = writeBatch(db);
-          let count = 0;
-          for (const row of dataRows) {
-            const customer = String(row[colCustomer] || '').trim();
-            if (!customer || customer === "לקוח") continue;
-            const rawManager = String(row[colManager] || '').trim();
-            let finalManager = '';
-            if (rawManager.includes('טירן')) finalManager = 'טירן סיגורה';
-            else if (rawManager.includes('שי')) finalManager = 'שי סיידון';
-            else if (rawManager.includes('נחום')) finalManager = 'נחום נחום';
-            else if (rawManager.includes('אהוד') || rawManager.includes('אודי')) finalManager = 'אהוד מועלם';
-            else if (rawManager.includes('עזרא')) finalManager = 'עזרא ירימי';
-            if (!finalManager) finalManager = authRole === 'manager' ? managerName : 'טירן סיגורה';
+V
+ניהול תווים
 
-            const docId = `v_${Date.now()}_${count}`;
-            batch.set(doc(collection(db, 'artifacts', appId, 'public', 'data', DATA_COLLECTION), docId), {
-              agentName: String(row[colAgent] || '').trim(),
-              importer: String(row[colImporter] || '').trim(),
-              agency: String(row[colAgency] || '').trim(),
-              customerName: customer,
-              amount: String(row[colAmount] || '300').trim(),
-              manager: finalManager,
-              month: filterMonth,
-              year: filterYear,
-              status: 'pending',
-              createdAt: new Date().toISOString()
-            });
-            count++;
-          }
-          if (count > 0) await batch.commit();
-          alert(`נטענו ${count} רשומות`);
-        } catch (e) {
-          alert("שגיאה בעיבוד");
-        }
-        setIsUploading(false);
-      };
-      reader.readAsArrayBuffer(file);
-    } catch (e) {
-      setIsUploading(false);
-    }
-  };
 
-  const filteredData = useMemo(() => {
-    return vouchers.filter(v => {
-      const mMonth = filterMonth === 'All' || v.month === filterMonth;
-      const mYear = filterYear === 'All' || v.year === filterYear;
-      const mAgency = filterAgency === 'All' || v.agency === filterAgency;
-      const mStatus = filterStatus === 'All' || 
-                      (filterStatus === 'delivered' && (v.status === 'delivered' || v.status === 'delivered_digital')) ||
-                      (filterStatus === 'pending' && v.status === 'pending');
-      
-      let mRole = authRole === 'manager' ? (v.manager === managerName) : (filterManager === 'All' || v.manager === filterManager);
-      const s = searchTerm.toLowerCase();
-      const mSearch = !s || [v.agentName, v.importer, v.agency, v.customerName].some(f => String(f || '').toLowerCase().includes(s));
-      return mMonth && mYear && mRole && mSearch && mAgency && mStatus;
-    }).sort((a, b) => (a.agency || "").localeCompare(b.agency || "", 'he'));
-  }, [vouchers, filterMonth, filterYear, filterManager, filterAgency, filterStatus, authRole, managerName, searchTerm]);
+<button onClick={fetchVouchers} className={isSyncing ? 'animate-spin' : ''}>
+<button onClick={() => {sessionStorage.clear(); window.location.reload();}} className="text-red-400">
 
-  const displayData = useMemo(() => {
-    if (authRole === 'manager') return filteredData.filter(v => v.status === 'pending');
-    return filteredData;
-  }, [filteredData, authRole]);
 
-  const stats = useMemo(() => {
-    return filteredData.reduce((acc, v) => {
-      const amt = Number(v.amount) || 0;
-      acc.total += amt;
-      if (v.status === 'pending') acc.pending += amt; else acc.delivered += amt;
-      return acc;
-    }, { total: 0, pending: 0, delivered: 0 });
-  }, [filteredData]);
 
-  if (!authRole) return <LoginScreen onLogin={handleLogin} />;
 
-  return (
-    <div className="min-h-screen bg-[#F0F2F5] text-[#262626] font-sans selection:bg-[#f6d19c]/30 overflow-x-hidden antialiased" dir="rtl">
-      {/* Welcome Banner */}
-      {showWelcome && (
-        <div className="fixed inset-x-4 top-20 z-[100] animate-in slide-in-from-top-4 duration-300">
-          <div className="max-w-md mx-auto bg-gradient-to-l from-[#262626] to-[#404040] p-4 rounded-2xl shadow-2xl border-r-4 border-[#9c7229] flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="bg-[#f6d19c] p-2 rounded-xl shadow-inner">
-                <Sparkles size={18} className="text-[#262626] animate-pulse" />
-              </div>
-              <div>
-                <p className="text-[#f6d19c] text-xs font-bold opacity-80">שלום רב,</p>
-                <h2 className="text-white text-base font-black tracking-tight">ברוך הבא, {managerName}</h2>
-              </div>
-            </div>
-            <Star size={20} className="text-white/10" />
-          </div>
-        </div>
-      )}
 
-      {/* Header */}
-      <nav className="bg-[#262626] text-white shadow-[0_4px_20px_rgba(0,0,0,0.4)] sticky top-0 z-50 border-b border-[#9c7229]/40">
-        <div className="max-w-3xl mx-auto px-4">
-          <div className="flex justify-between items-center py-3">
-            <div className="flex flex-col">
-              <Logo className="h-7 md:h-9 w-auto text-white" />
-              <div className="mt-1 flex items-center gap-1 bg-[#9c7229]/20 px-1.5 py-0.5 rounded border border-[#9c7229]/30 w-fit">
-                <span className="text-[10px] font-bold text-[#f6d19c] whitespace-nowrap opacity-90">{managerName}</span>
-              </div>
-            </div>
-            <button onClick={handleLogout} className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl transition-all active:scale-90 border border-white/10">
-              <LogOut size={18} className="text-[#d4a55f]" />
-            </button>
-          </div>
-        </div>
-      </nav>
+מנהל מחובר
+{managerName}
 
-      <main className="max-w-3xl mx-auto p-3 space-y-4 pb-24">
-        {/* Search & Filters */}
-        <div className="bg-white rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 p-3 space-y-3 mt-2">
-          <div className="relative group">
-            <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-[#d4a55f] transition-colors" size={16} />
-            <input
-              type="text"
-              placeholder="חיפוש לפי לקוח, סוכן או סוכנות..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 focus:border-[#d4a55f]/50 focus:bg-white focus:ring-4 focus:ring-[#d4a55f]/5 pr-10 pl-4 py-2.5 rounded-lg transition-all text-sm outline-none shadow-inner"
-            />
-          </div>
 
-          <div className="flex flex-wrap gap-2 items-center text-[13px]">
-            <div className="flex bg-slate-50 p-1 rounded-lg border border-slate-200 shadow-inner">
-              <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className="bg-transparent border-0 py-1 px-2 font-medium text-slate-600 outline-none cursor-pointer text-[12px]">
-                <option value="2024">2024</option><option value="2025">2025</option><option value="2026">2026</option>
-              </select>
-              <div className="w-px h-3 bg-slate-300 self-center"></div>
-              <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="bg-transparent border-0 py-1 px-2 font-medium text-slate-600 outline-none cursor-pointer text-[12px]">
-                {Object.entries(HEBREW_MONTHS).map(([val, name]) => <option key={val} value={val}>{name}</option>)}
-              </select>
-            </div>
+<button onClick={() => setCurrentMonthIndex(p => p - 1)} disabled={currentMonthIndex === 0}>
+{activePeriod.name} 20{activePeriod.year}
+<button onClick={() => setCurrentMonthIndex(p => p + 1)} disabled={currentMonthIndex === HEBREW_MONTHS.length - 1}>
 
-            <select value={filterAgency} onChange={e => setFilterAgency(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 font-medium text-slate-600 outline-none cursor-pointer shadow-sm text-[12px]">
-              <option value="All">כל הסוכנויות</option>
-              {agencies.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
+<input type="text" placeholder="חיפוש..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full p-4 rounded-2xl border-2 border-slate-50 outline-none" />
 
-            {authRole === 'admin' && (
-              <>
-                <select value={filterManager} onChange={e => setFilterManager(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 font-medium text-slate-600 outline-none cursor-pointer shadow-sm text-[12px]">
-                  <option value="All">כל המנהלים</option>
-                  {Object.values(AREA_MANAGERS).map(n => <option key={n} value={n}>{n}</option>)}
-                </select>
-                <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-2.5 font-medium text-slate-600 outline-none cursor-pointer shadow-sm text-[12px]">
-                  <option value="All">כל הסטטוסים</option>
-                  <option value="delivered">נמסר</option>
-                  <option value="pending">טרם נמסר</option>
-                </select>
-              </>
-            )}
+{filteredData.map(v => (
 
-            {authRole === 'admin' && (
-              <div className="flex gap-2 mr-auto">
-                <button onClick={handleExportToExcel} title="ייצוא לאקסל" className="p-2 bg-white text-slate-500 rounded-lg border border-slate-200 hover:bg-slate-50 transition shadow-sm active:translate-y-0.5">
-                  <Download size={14} />
-                </button>
-                <label title="טעינת קובץ" className={`p-2 rounded-lg cursor-pointer transition shadow-sm active:translate-y-0.5 ${isUploading ? 'bg-slate-100 text-slate-300' : 'bg-green-600 text-white hover:bg-green-700'}`}>
-                  <Upload size={14} />
-                  <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleExcelUpload} disabled={isUploading} />
-                </label>
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-2.5">
-          <StatBox label="חלוקה" val={stats.total} theme="gold" />
-          <StatBox label="יתרה" val={stats.pending} theme="dark" />
-          <StatBox label="נמסר" val={stats.delivered} theme="outline" />
-        </div>
 
-        {/* ── TABLE ── */}
-        <div className="bg-white rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.05)] border border-slate-100 overflow-hidden">
-          <div
-            className="bg-[#262626] text-white text-[11px] font-bold px-3 py-2.5 flex items-center gap-0"
-            style={{ display: 'grid', gridTemplateColumns: '1fr 68px 48px 60px 50px' }}
-          >
-            <span className="text-[#f6d19c]">לקוח / סוכן</span>
-            <span className="text-center text-slate-300">סוכנות</span>
-            <span className="text-center text-slate-300">סכום</span>
-            <span className="text-center text-slate-300">מנהל</span>
-            <span className="text-center text-slate-300">אישור</span>
-          </div>
+{v.customerName}
+{v.agent} | {v.agency}
 
-          {loading ? (
-            <div className="py-12 flex justify-center">
-              <div className="w-6 h-6 border-2 border-[#9c7229] border-t-transparent animate-spin rounded-full"></div>
-            </div>
-          ) : displayData.length === 0 ? (
-            <div className="py-12 text-center">
-              <p className="text-slate-400 text-sm font-medium">אין נתונים להצגה בחודש הנבחר</p>
-            </div>
-          ) : (
-            displayData.map((v, idx) => {
-              const isPending = v.status === 'pending';
-              const isProcessing = processingId === v.id;
-              const color = managerColor(v.manager);
 
-              return (
-                <div
-                  key={v.id}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 68px 48px 60px 50px',
-                    borderRight: `3px solid ${color}`,
-                    opacity: isProcessing ? 0.4 : 1,
-                    transition: 'opacity 0.25s, background-color 0.3s',
-                    backgroundColor: !isPending && authRole === 'admin' ? '#f0fdf4' : (idx % 2 === 0 ? 'white' : '#f8fafc')
-                  }}
-                  className={`
-                    items-center px-3 py-2.5
-                    border-b border-slate-100 last:border-0
-                    ${!isPending && authRole === 'admin' ? 'border-r-emerald-500' : ''}
-                  `}
-                >
-                  <div className="min-w-0 pl-1">
-                    <p className="text-[12.5px] font-bold text-[#1a1a1a] truncate leading-tight">{v.customerName}</p>
-                    <p className="text-[10px] text-slate-400 truncate mt-0.5">{v.agentName}{v.importer ? ` · ${v.importer}` : ''}</p>
-                  </div>
-                  <div className="text-center px-1">
-                    <span className="text-[10px] font-semibold text-slate-500 bg-slate-100/80 rounded px-1.5 py-0.5 block truncate leading-tight">{v.agency}</span>
-                  </div>
-                  <div className="text-center">
-                    <span className="text-[12px] font-black text-[#262626]">₪{v.amount}</span>
-                  </div>
-                  {/* Manager Column */}
-                  <div className="text-center overflow-hidden">
-                    <span className="text-[9.5px] font-bold text-slate-400 truncate block px-0.5">{v.manager ? v.manager.split(' ')[0] : '-'}</span>
-                  </div>
-                  {/* V Button / Status */}
-                  <div className="flex items-center gap-1 justify-center">
-                    {isPending ? (
-                      <button
-                        onClick={() => updateStatus(v.id, 'delivered')}
-                        className="w-8 h-8 flex items-center justify-center bg-[#262626] text-[#f6d19c] rounded-full active:scale-90 transition-all shadow-md"
-                      >
-                        <Check size={16} strokeWidth={3} />
-                      </button>
-                    ) : (
-                      <div className="flex flex-col items-center">
-                        <CheckCircle size={18} className="text-emerald-500 mb-0.5" />
-                        {authRole === 'admin' && (
-                          <button 
-                            onClick={() => updateStatus(v.id, 'pending')}
-                            className="text-[8px] font-bold text-slate-300 hover:text-red-400 transition-colors underline"
-                          >ביטול</button>
-                        )}
-                      </div>
-                    )}
-                    {authRole === 'admin' && (
-                      <button onClick={() => deleteItem(v.id)} className="text-slate-200 hover:text-red-400 active:scale-90 transition-all p-0.5 mr-1">
-                        <Trash2 size={13} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          )}
-          {!loading && displayData.length > 0 && (
-            <div className="bg-slate-50 border-t border-slate-100 px-4 py-2 flex justify-between items-center">
-              <span className="text-[11px] text-slate-400 font-medium">{displayData.length} רשומות</span>
-              <div className="flex items-center gap-2.5">
-                {Object.entries(MANAGER_COLORS).map(([name, color]) => {
-                  const count = displayData.filter(v => v.manager === name).length;
-                  if (!count) return null;
-                  return (
-                    <div key={name} className="flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full inline-block" style={{ background: color }}></span>
-                      <span className="text-[10px] text-slate-400 font-medium">{name.split(' ')[0]} ({count})</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      </main>
+₪{v.amount}
 
-      {toast && (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5">
-          <div className="bg-[#262626] text-[#f6d19c] px-6 py-2.5 rounded-full shadow-2xl text-[13px] font-bold flex items-center gap-2.5 border border-[#9c7229]/30">
-            <CheckCircle size={14} className="text-[#d4a55f]" />
-            {toast}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
-function StatBox({ label, val, theme }) {
-  const styles = {
-    gold: 'bg-white border-b-4 border-[#9c7229] text-[#262626]',
-    dark: 'bg-[#262626] text-white border-b-4 border-black',
-    outline: 'bg-white border-slate-200 border-b-4 text-slate-500'
-  };
-  return (
-    <div className={`py-3.5 px-2 rounded-2xl shadow-[0_4px_12px_rgba(0,0,0,0.05)] ${styles[theme]} flex flex-col items-center justify-center transition-transform hover:scale-[1.02]`}>
-      <span className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">{label}</span>
-      <span className="text-[13px] font-black tracking-tight drop-shadow-sm">₪{val.toLocaleString()}</span>
-    </div>
-  );
+
+יבואן: {v.importer}
+{v.status === 'נמסר' ? ✓ נמסר :
+<button onClick={() => updateStatus(v.id, 'נמסר')} className="bg-[#1E293B] text-[#D4AF37] px-5 py-2 rounded-xl text-xs font-bold">סמן נמסר}
+
+
+))}
+
+
+{toast && {toast}}
+
+);
 }
 
 function LoginScreen({ onLogin }) {
-  const [pin, setPin] = useState('');
-  const isNumeric = /^\d+$/.test(pin);
-  return (
-    <div className="min-h-screen bg-[#F0F2F5] flex flex-col items-center justify-center p-6" dir="rtl">
-      <div className="bg-white p-10 rounded-[2.5rem] shadow-[0_20px_60px_rgba(0,0,0,0.1)] max-w-[380px] w-full relative overflow-hidden border-b-8 border-slate-200">
-        <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#9c7229] to-[#f6d19c]"></div>
-        <div className="mb-8 flex justify-center">
-          <Logo className="h-12 w-auto text-[#262626]" />
-        </div>
-        <h1 className="text-2xl font-black text-[#262626] text-center mb-6 tracking-tight">חלוקת תווים</h1>
-        <form onSubmit={e => { e.preventDefault(); onLogin(pin); }} className="space-y-6">
-          <div className="relative">
-            <input
-              type={isNumeric ? "password" : "text"}
-              value={pin}
-              onChange={e => setPin(e.target.value)}
-              className="w-full text-center text-3xl py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-[#d4a55f]/50 outline-none transition-all font-sans text-[#262626] shadow-inner placeholder:text-slate-200"
-              placeholder="הכנס קוד"
-              required
-            />
-          </div>
-          <button type="submit" className="w-full bg-[#262626] text-[#f6d19c] py-4 rounded-2xl font-black text-sm hover:bg-black transition-all active:translate-y-1 shadow-[0_6px_0_rgba(0,0,0,0.2)] active:shadow-none border-t border-white/5">
-            התחברות למערכת
-          </button>
-        </form>
-      </div>
-      <footer className="mt-8 text-center">
-        <p className="text-slate-400 text-xs font-medium">* כל הזכויות שמורות לקרדיבל פלוס בע״מ</p>
-      </footer>
-    </div>
-  );
+const [pin, setPin] = useState('');
+return (
+
+
+כניסה
+<input type="password" value={pin} onChange={e => setPin(e.target.value)} className="w-full text-center text-3xl p-4 bg-slate-50 rounded-2xl mb-4" placeholder="••••" />
+<button onClick={() => onLogin(pin)} className="w-full bg-[#1E293B] text-[#D4AF37] py-4 rounded-2xl font-bold">התחבר
+
+
+);
 }
