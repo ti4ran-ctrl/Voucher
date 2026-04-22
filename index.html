@@ -1,154 +1,251 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Search, LogOut, CheckCircle, Database, Trash2, User, Building, ChevronRight, ChevronLeft, Tag } from 'lucide-react';
+```html
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מערכת ניהול תווים - Credible</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Assistant', sans-serif; background-color: #F0F2F5; }
+        .animate-slide-out { transform: translateX(120%); opacity: 0; transition: all 0.5s ease-in-out; }
+        .gold-gradient { background: linear-gradient(to right, #f6d19c, #9c7229); }
+        select { appearance: none; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: left 0.5rem center; background-size: 1em; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
 
-const GOOGLE_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbzUsBjZPvcUHyP2W10DWpvfK-aWJQ2E8Vt0YnuuOpWAW0VDFGNL-MdV8auBd4PwjLbB/exec";
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
 
-const AREA_MANAGERS = {
-'037122595': 'טירן סיגורה',
-'040476012': 'נחום נחום',
-'034887919': 'שי סיידון',
-'021710553': 'אהוד מועלם',
-'066436098': 'עזרא ירימי'
-};
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzUsBjZPvcUHyP2W10DWpvfK-aWJQ2E8Vt0YnuuOpWAW0VDFGNL-MdV8auBd4PwjLbB/exec';
 
-const ADMIN_CREDENTIAL = 'credible';
+        const AREA_MANAGERS = {
+            '037122595': 'טירן סיגורה',
+            '040476012': 'נחום נחום',
+            '034887919': 'שי סיידון',
+            '021710553': 'אהוד מועלם',
+            '066436098': 'עזרא ירימי'
+        };
+        const ADMIN_CREDENTIAL = 'credible';
 
-const HEBREW_MONTHS = [
-{ val: '09', name: 'ספטמבר', year: '25' },
-{ val: '10', name: 'אוקטובר', year: '25' },
-{ val: '11', name: 'נובמבר', year: '25' },
-{ val: '12', name: 'דצמבר', year: '25' },
-{ val: '01', name: 'ינואר', year: '26' },
-{ val: '02', name: 'פברואר', year: '26' },
-{ val: '03', name: 'מרץ', year: '26' },
-{ val: '04', name: 'אפריל', year: '26' },
-];
+        const HEBREW_MONTHS = {
+            '01': 'ינואר', '02': 'פברואר', '03': 'מרץ', '04': 'אפריל',
+            '05': 'מאי', '06': 'יוני', '07': 'יולי', '08': 'אוגוסט',
+            '09': 'ספטמבר', '10': 'אוקטובר', '11': 'נובמבר', '12': 'דצמבר'
+        };
 
-export default function App() {
-const [authRole, setAuthRole] = useState(null);
-const [managerName, setManagerName] = useState('');
-const [vouchers, setVouchers] = useState([]);
-const [isSyncing, setIsSyncing] = useState(false);
-const [searchTerm, setSearchTerm] = useState('');
-const [toast, setToast] = useState(null);
-const [currentMonthIndex, setCurrentMonthIndex] = useState(7);
+        const MANAGER_COLORS = {
+            'טירן סיגורה': '#3b82f6',
+            'נחום נחום': '#8b5cf6',
+            'שי סיידון': '#10b981',
+            'אהוד מועלם': '#f59e0b',
+            'עזרא ירימי': '#ef4444',
+        };
 
-const activePeriod = HEBREW_MONTHS[currentMonthIndex];
+        const Logo = ({ className = "h-8 w-auto" }) => (
+            <svg viewBox="0 0 301.68 65.71" className={className} fill="currentColor">
+                <text x="10" y="45" fontSize="35" fontWeight="bold">CREDIBLE</text>
+            </svg>
+        );
 
-const fetchVouchers = async () => {
-setIsSyncing(true);
-try {
-const url = ${GOOGLE_SHEET_API_URL}?month=${activePeriod.val}&year=${activePeriod.year};
-const response = await fetch(url);
-const data = await response.json();
-if (data.error) { setVouchers([]); showToast(data.error); }
-else { setVouchers(Array.isArray(data) ? data : []); }
-} catch (e) { showToast("שגיאה בחיבור"); } finally { setIsSyncing(false); }
-};
+        function App() {
+            const [authRole, setAuthRole] = useState(null);
+            const [managerName, setManagerName] = useState('');
+            const [vouchers, setVouchers] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [toast, setToast] = useState(null);
+            const [animatingOutIds, setAnimatingOutIds] = useState({});
 
-useEffect(() => {
-const r = sessionStorage.getItem('v_role');
-const n = sessionStorage.getItem('v_name');
-if (r) { setAuthRole(r); setManagerName(n); fetchVouchers(); }
-}, [currentMonthIndex]);
+            const now = new Date();
+            const [filterMonth, setFilterMonth] = useState((now.getMonth() + 1).toString().padStart(2, '0'));
+            const [filterYear, setFilterYear] = useState(now.getFullYear().toString());
+            const [filterAgency, setFilterAgency] = useState('All');
+            const [searchTerm, setSearchTerm] = useState('');
 
-const handleLogin = (pin) => {
-let role = null; let name = '';
-if (pin === ADMIN_CREDENTIAL) { role = 'admin'; name = 'מנהל מערכת'; }
-else if (AREA_MANAGERS[pin]) { role = 'manager'; name = AREA_MANAGERS[pin]; }
-if (role) {
-setAuthRole(role); setManagerName(name);
-sessionStorage.setItem('v_role', role); sessionStorage.setItem('v_name', name);
-fetchVouchers();
-} else { alert("קוד שגוי"); }
-};
+            useEffect(() => {
+                const r = sessionStorage.getItem('v_role');
+                const n = sessionStorage.getItem('v_name');
+                if (r) {
+                    setAuthRole(r);
+                    setManagerName(n || '');
+                }
+            }, []);
 
-const updateStatus = async (id, newStatus) => {
-const prev = [...vouchers];
-setVouchers(v => v.map(item => item.id == id ? { ...item, status: newStatus } : item));
-try {
-await fetch(GOOGLE_SHEET_API_URL, {
-method: 'POST',
-body: JSON.stringify({ id, status: newStatus, sheetName: ${activePeriod.name} ${activePeriod.year} })
-});
-showToast(עודכן ל-${newStatus});
-} catch (e) { setVouchers(prev); showToast("שגיאה בעדכון"); }
-};
+            const fetchData = async () => {
+                if (!authRole) return;
+                setLoading(true);
+                try {
+                    const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=read&month=${filterMonth}&year=${filterYear}`);
+                    const result = await response.json();
+                    if (result.status === 'success') {
+                        setVouchers(result.data);
+                    }
+                } catch (error) {
+                    console.error("Fetch Error:", error);
+                    showToast("שגיאה במשיכת נתונים");
+                } finally {
+                    setLoading(false);
+                }
+            };
 
-const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
+            useEffect(() => {
+                fetchData();
+            }, [authRole, filterMonth, filterYear]);
 
-const filteredData = useMemo(() => {
-return vouchers.filter(v => {
-const matchManager = authRole === 'admin' ? true : v.manager === managerName;
-const isNotDeleted = v.status !== 'לא נותנים';
-const s = searchTerm.toLowerCase();
-const matchSearch = !s || [v.customerName, v.agent, v.agency, v.importer].some(f => String(f || '').toLowerCase().includes(s));
-return matchManager && isNotDeleted && matchSearch;
-});
-}, [vouchers, authRole, managerName, searchTerm]);
+            const updateSheetStatus = async (rowId, newStatus) => {
+                try {
+                    await fetch(GOOGLE_SCRIPT_URL, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        body: JSON.stringify({ action: 'update', id: rowId, status: newStatus })
+                    });
+                    return true;
+                } catch (error) {
+                    return false;
+                }
+            };
 
-if (!authRole) return ;
+            const showToast = (msg) => {
+                setToast(msg);
+                setTimeout(() => setToast(null), 2500);
+            };
 
-return (
+            const handleLogin = (pin) => {
+                let role = pin === ADMIN_CREDENTIAL ? 'admin' : (AREA_MANAGERS[pin] ? 'manager' : null);
+                if (role) {
+                    const name = role === 'admin' ? 'מנהל מערכת' : AREA_MANAGERS[pin];
+                    setAuthRole(role);
+                    setManagerName(name);
+                    sessionStorage.setItem('v_role', role);
+                    sessionStorage.setItem('v_name', name);
+                } else {
+                    alert('קוד שגוי');
+                }
+            };
 
+            const handleMarkDelivered = async (id) => {
+                setAnimatingOutIds(prev => ({ ...prev, [id]: true }));
+                await updateSheetStatus(id, 'delivered');
+                setTimeout(() => {
+                    setVouchers(prev => prev.map(v => v.id === id ? { ...v, status: 'delivered' } : v));
+                    showToast('נמסר ועודכן בגיליון');
+                }, 500);
+            };
 
+            const handleCancelItem = async (id) => {
+                await updateSheetStatus(id, 'cancelled');
+                setVouchers(prev => prev.map(v => v.id === id ? { ...v, status: 'cancelled' } : v));
+                showToast('לא נותנים - עודכן בגיליון');
+            };
 
+            const filteredData = useMemo(() => {
+                return vouchers.filter(v => {
+                    const mAgency = filterAgency === 'All' || v.agency === filterAgency;
+                    const mRole = authRole === 'manager' ? (v.manager === managerName) : true;
+                    const s = searchTerm.toLowerCase();
+                    const mSearch = !s || [v.agentName, v.agency, v.customerName].some(f => String(f || '').toLowerCase().includes(s));
+                    return mRole && mSearch && mAgency;
+                });
+            }, [vouchers, filterAgency, authRole, managerName, searchTerm]);
 
-V
-ניהול תווים
+            if (!authRole) return <Login onLogin={handleLogin} />;
 
+            return (
+                <div className="min-h-screen pb-20">
+                    <nav className="bg-[#262626] text-white p-4 sticky top-0 z-50 flex justify-between items-center shadow-md">
+                        <div className="flex flex-col">
+                            <Logo className="h-6 text-white" />
+                            <span className="text-[10px] text-[#f6d19c]">{managerName}</span>
+                        </div>
+                        <div className="flex gap-3">
+                            <button onClick={fetchData} className="p-2 bg-white/10 rounded-lg"><RefreshIcon loading={loading}/></button>
+                            <button onClick={() => {setAuthRole(null); sessionStorage.clear();}} className="p-2 bg-white/10 rounded-lg">יציאה</button>
+                        </div>
+                    </nav>
 
-<button onClick={fetchVouchers} className={isSyncing ? 'animate-spin' : ''}>
-<button onClick={() => {sessionStorage.clear(); window.location.reload();}} className="text-red-400">
+                    <div className="p-4 max-w-2xl mx-auto space-y-4">
+                        <div className="bg-white p-4 rounded-2xl shadow-sm space-y-3">
+                            <input 
+                                type="text" 
+                                placeholder="חיפוש לקוח/סוכנות..." 
+                                className="w-full p-3 bg-slate-50 border rounded-xl outline-none text-sm"
+                                onChange={e => setSearchTerm(e.target.value)}
+                            />
+                            <div className="flex gap-2">
+                                <select className="flex-1 p-2 border rounded-lg text-sm" value={filterMonth} onChange={e => setFilterMonth(e.target.value)}>
+                                    {Object.entries(HEBREW_MONTHS).map(([v,k]) => <option key={v} value={v}>{k}</option>)}
+                                </select>
+                                <select className="flex-1 p-2 border rounded-lg text-sm" value={filterAgency} onChange={e => setFilterAgency(e.target.value)}>
+                                    <option value="All">כל הסוכנויות</option>
+                                    {[...new Set(vouchers.map(v=>v.agency))].map(a => <option key={a} value={a}>{a}</option>)}
+                                </select>
+                            </div>
+                        </div>
 
+                        <div className="space-y-2">
+                            {filteredData.filter(v => authRole === 'admin' || (v.status === 'pending' || animatingOutIds[v.id])).map(v => (
+                                <div key={v.id} 
+                                     style={{borderRight: `4px solid ${MANAGER_COLORS[v.manager] || '#ccc'}`}}
+                                     className={`bg-white p-4 rounded-xl shadow-sm flex justify-between items-center transition-all ${animatingOutIds[v.id] ? 'animate-slide-out' : ''}`}>
+                                    <div>
+                                        <h3 className="font-bold text-sm">{v.customerName}</h3>
+                                        <p className="text-xs text-gray-500">{v.agency} | ₪{v.amount}</p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        {v.status === 'pending' ? (
+                                            <>
+                                                <button onClick={() => handleMarkDelivered(v.id)} className="w-10 h-10 bg-emerald-500 text-white rounded-full flex items-center justify-center shadow-lg">✓</button>
+                                                {authRole === 'admin' && (
+                                                    <button onClick={() => handleCancelItem(v.id)} className="w-10 h-10 bg-red-100 text-red-500 rounded-full flex items-center justify-center">🗑</button>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <span className={`text-[10px] font-bold px-2 py-1 rounded ${v.status === 'delivered' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                                {v.status === 'delivered' ? 'נמסר' : 'בוטל'}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
 
+                    {toast && <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-black text-white px-6 py-3 rounded-full text-sm shadow-2xl z-[100] animate-bounce">{toast}</div>}
+                </div>
+            );
+        }
 
+        function Login({ onLogin }) {
+            const [val, setVal] = useState('');
+            return (
+                <div className="h-screen flex items-center justify-center p-6">
+                    <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-sm border-t-8 border-[#9c7229] text-center">
+                        <h1 className="text-2xl font-black mb-6">כניסה למערכת</h1>
+                        <input type="password" value={val} onChange={e=>setVal(e.target.value)} className="w-full p-4 bg-gray-50 border rounded-2xl mb-4 text-center text-xl" placeholder="קוד גישה" />
+                        <button onClick={() => onLogin(val)} className="w-full bg-[#262626] text-[#f6d19c] p-4 rounded-2xl font-bold">התחברות</button>
+                    </div>
+                </div>
+            );
+        }
 
+        function RefreshIcon({loading}) {
+            return (
+                <svg className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+            );
+        }
 
-מנהל מחובר
-{managerName}
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
 
-
-<button onClick={() => setCurrentMonthIndex(p => p - 1)} disabled={currentMonthIndex === 0}>
-{activePeriod.name} 20{activePeriod.year}
-<button onClick={() => setCurrentMonthIndex(p => p + 1)} disabled={currentMonthIndex === HEBREW_MONTHS.length - 1}>
-
-<input type="text" placeholder="חיפוש..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full p-4 rounded-2xl border-2 border-slate-50 outline-none" />
-
-{filteredData.map(v => (
-
-
-
-{v.customerName}
-{v.agent} | {v.agency}
-
-
-₪{v.amount}
-
-
-
-יבואן: {v.importer}
-{v.status === 'נמסר' ? ✓ נמסר :
-<button onClick={() => updateStatus(v.id, 'נמסר')} className="bg-[#1E293B] text-[#D4AF37] px-5 py-2 rounded-xl text-xs font-bold">סמן נמסר}
-
-
-))}
-
-
-{toast && {toast}}
-
-);
-}
-
-function LoginScreen({ onLogin }) {
-const [pin, setPin] = useState('');
-return (
-
-
-כניסה
-<input type="password" value={pin} onChange={e => setPin(e.target.value)} className="w-full text-center text-3xl p-4 bg-slate-50 rounded-2xl mb-4" placeholder="••••" />
-<button onClick={() => onLogin(pin)} className="w-full bg-[#1E293B] text-[#D4AF37] py-4 rounded-2xl font-bold">התחבר
-
-
-);
-}
+```
