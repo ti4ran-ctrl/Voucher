@@ -10,30 +10,22 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Assistant:wght@200;300;400;500;600;700;800&display=swap');
-        
-        html, body {
-            max-width: 100%;
-            overflow-x: hidden;
-            position: relative;
-        }
-
         body { 
             font-family: 'Assistant', sans-serif; 
             background-color: #F0F2F5; 
             -webkit-tap-highlight-color: transparent; 
+            overflow-x: hidden; 
+            width: 100%;
         }
-
-        /* מניעת זום אוטומטי ב-iOS על ידי הגדרת מינימום 16 פיקסלים */
         input, select, textarea {
             font-size: 16px !important;
         }
-
         .slide-out {
             animation: slideOut 0.5s forwards ease-in-out;
         }
         @keyframes slideOut {
-            0% { transform: translateX(0); opacity: 1; height: auto; }
-            100% { transform: translateX(100%); opacity: 0; height: 0; padding: 0; margin: 0; }
+            0% { transform: translateX(0); opacity: 1; }
+            100% { transform: translateX(100%); opacity: 0; visibility: hidden; height: 0; padding: 0; margin: 0; }
         }
         .welcome-banner {
             animation: fadeInOut 2.5s forwards ease-in-out;
@@ -44,7 +36,6 @@
             85% { opacity: 1; transform: translateY(0); }
             100% { opacity: 0; transform: translateY(-20px); }
         }
-        
         .grid-row {
             display: grid;
             grid-template-columns: 1.5fr 1fr 1fr 0.8fr 0.8fr 40px;
@@ -68,7 +59,8 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwNtLKFJo43qD8zma3J4la0MGnRtxn6eX-uE0g943zL2DshAlRWkDmebXrkyEFkjR3_/exec';
+        // ה-URL המעודכן שסיפקת לסנכרון עם הגוגל שיטס
+        const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzyeXEMemISQzHcJu4qteFmNeQvJo4FgrAwFi6BT1U5tSwKOV1mAN8hGtS4qUUv7k4QQA/exec';
         
         const AREA_MANAGERS = {
             '037122595': 'טירן סיגורה',
@@ -79,11 +71,11 @@
         };
         const ADMIN_CODE = 'credible';
 
-        const HEBREW_MONTHS = {
-            '01': 'ינואר', '02': 'פברואר', '03': 'מרץ', '04': 'אפריל',
-            '05': 'מאי', '06': 'יוני', '07': 'יולי', '08': 'אוגוסט',
-            '09': 'ספטמבר', '10': 'אוקטובר', '11': 'נובמבר', '12': 'דצמבר'
-        };
+        const HEBREW_MONTHS = [
+            {v: '01', n: 'ינואר'}, {v: '02', n: 'פברואר'}, {v: '03', n: 'מרץ'}, {v: '04', n: 'אפריל'},
+            {v: '05', n: 'מאי'}, {v: '06', n: 'יוני'}, {v: '07', n: 'יולי'}, {v: '08', n: 'אוגוסט'},
+            {v: '09', n: 'ספטמבר'}, {v: '10', n: 'אוקטובר'}, {v: '11', n: 'נובמבר'}, {v: '12', n: 'דצמבר'}
+        ];
 
         const Icons = {
             Search: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>,
@@ -189,17 +181,17 @@
             };
 
             const handleAction = async (id, actionType) => {
-                if (user.role === 'admin') {
+                if (user.role === 'manager') {
                     setRemovingId(id);
                     setTimeout(async () => {
-                        setData(prev => prev.filter(v => v.id !== id));
+                        setData(prev => prev.map(v => v.id === id ? { ...v, status: actionType } : v));
                         setRemovingId(null);
                         setToast('עודכן בהצלחה');
                         setTimeout(() => setToast(null), 2000);
                     }, 500);
                 } else {
                     setData(prev => prev.map(v => v.id === id ? { ...v, status: actionType } : v));
-                    setToast('סטטוס עודכן');
+                    setToast(actionType === 'נמסר' ? 'סומן כנמסר' : 'הוסר מהתצוגה');
                     setTimeout(() => setToast(null), 2000);
                 }
 
@@ -221,8 +213,9 @@
                     const rowMgr = normalize(v.manager);
                     const myName = normalize(user?.name);
                     
+                    const isEhuddin = myName.includes('אהוד מועלם');
                     const isMyArea = user?.role === 'manager' 
-                        ? (rowMgr.includes(myName) || myName.includes(rowMgr))
+                        ? (rowMgr.includes(myName) || myName.includes(rowMgr) || (isEhuddin && (rowMgr.includes('אודי') || rowMgr === 'אודי')))
                         : true;
                     
                     if (user?.role === 'manager' && (v.status === 'נמסר' || v.status === 'לא נותנים')) return false;
@@ -240,24 +233,16 @@
             }, [data, filterAgency, searchTerm, user]);
 
             const stats = useMemo(() => {
-                const normalize = (s) => String(s || "").trim().toLowerCase();
-                const myName = normalize(user?.name);
-
-                return data.reduce((acc, v) => {
-                    const rowMgr = normalize(v.manager);
-                    const isMyArea = user?.role === 'manager' 
-                        ? (rowMgr.includes(myName) || myName.includes(rowMgr))
-                        : true;
-
-                    if (isMyArea && v.status !== 'לא נותנים') {
-                        const amt = Number(v.amount) || 0;
-                        acc.total += amt;
-                        if (v.status === 'נמסר') acc.delivered += amt;
-                        else acc.pending += amt;
+                return filteredData.reduce((acc, v) => {
+                    const amt = Number(v.amount) || 0;
+                    if (v.status !== 'לא נותנים') {
+                        acc.total += amt; 
+                        if (v.status === 'נמסר') acc.delivered += amt; 
+                        else acc.pending += amt; 
                     }
                     return acc;
                 }, { total: 0, pending: 0, delivered: 0 });
-            }, [data, user]);
+            }, [filteredData]);
 
             const exportToExcel = () => {
                 let csv = 'לקוח,יבואן,סוכנות,סוכן,מנהל,סכום,סטטוס\n';
@@ -282,7 +267,7 @@
             }} />;
 
             return (
-                <div className="min-h-screen pb-20 overflow-x-hidden">
+                <div className="min-h-screen pb-20 overflow-x-hidden w-full">
                     {welcomeBanner && (
                         <div className="fixed top-10 left-0 right-0 z-[100] flex justify-center pointer-events-none">
                             <div className="welcome-banner bg-[#262626] border border-[#f6d19c]/40 text-[#f6d19c] px-10 py-3 rounded-full shadow-2xl font-bold text-lg">
@@ -314,19 +299,18 @@
                         <div className="bg-white rounded-2xl shadow-sm border p-3 space-y-3">
                             <div className="relative">
                                 <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300"><Icons.Search /></div>
-                                <input 
-                                    type="text" 
-                                    placeholder="חיפוש..." 
-                                    value={searchTerm} 
-                                    onChange={e => setSearchTerm(e.target.value)} 
-                                    className="w-full bg-slate-50 border rounded-xl pr-10 pl-4 py-2.5 text-[16px] outline-none" 
-                                />
+                                <input type="text" placeholder="חיפוש..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-slate-50 border rounded-xl pr-10 pl-4 py-2.5 text-[13px] outline-none" />
                             </div>
                             <div className="flex gap-2">
-                                <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="bg-slate-50 border rounded-xl py-2 px-3 text-[16px] flex-1">
-                                    {Object.entries(HEBREW_MONTHS).map(([v, n]) => <option key={v} value={v}>{n}</option>)}
+                                <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="bg-slate-50 border rounded-xl py-2 px-3 text-[12px] flex-1">
+                                    {HEBREW_MONTHS.map(m => <option key={m.v} value={m.v}>{m.n}</option>)}
                                 </select>
-                                <select value={filterAgency} onChange={e => setFilterAgency(e.target.value)} className="bg-slate-50 border rounded-xl py-2 px-3 text-[16px] flex-1">
+                                <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className="bg-slate-50 border rounded-xl py-2 px-3 text-[12px] flex-1">
+                                    <option value="2024">2024</option>
+                                    <option value="2025">2025</option>
+                                    <option value="2026">2026</option>
+                                </select>
+                                <select value={filterAgency} onChange={e => setFilterAgency(e.target.value)} className="bg-slate-50 border rounded-xl py-2 px-3 text-[12px] flex-1">
                                     <option value="All">כל הסוכנויות</option>
                                     {agencies.map(a => <option key={a} value={a}>{a}</option>)}
                                 </select>
@@ -342,7 +326,7 @@
                                 <p className="text-[10px] font-bold opacity-60">יתרה</p>
                                 <p className="text-[14px] font-black">₪{stats.pending.toLocaleString()}</p>
                             </div>
-                            <div className="bg-white p-3 rounded-2xl border-b-4 border-slate-200 text-center text-slate-500 shadow-sm">
+                            <div className="bg-white p-3 rounded-2xl border-b-4 border-emerald-500 text-center text-slate-500 shadow-sm">
                                 <p className="text-[10px] font-bold">נמסר</p>
                                 <p className="text-[14px] font-black">₪{stats.delivered.toLocaleString()}</p>
                             </div>
@@ -365,7 +349,7 @@
                                     <div className="text-[11px] font-black">₪{v.amount}</div>
                                     <div className="flex justify-center">
                                         {user.role === 'admin' ? 
-                                            (v.status === 'נמסר' ? <div className="text-emerald-500"><Icons.Check/></div> : v.status === 'לא נותנים' ? <span className="text-red-400 text-[10px]">X</span> : <button onClick={() => handleAction(v.id, 'לא נותנים')} className="text-slate-300"><Icons.Trash/></button>) :
+                                            (v.status === 'נמסר' ? <div className="text-emerald-500 font-bold"><Icons.Check/></div> : v.status === 'לא נותנים' ? <span className="text-red-500 font-black text-[12px]">X</span> : <button onClick={() => handleAction(v.id, 'לא נותנים')} className="text-slate-300 hover:text-red-400 transition"><Icons.Trash/></button>) :
                                             <button onClick={() => handleAction(v.id, 'נמסר')} className="w-7 h-7 bg-emerald-500 text-white rounded-lg flex items-center justify-center shadow-lg active:scale-90 transition"><Icons.Check/></button>
                                         }
                                     </div>
@@ -381,23 +365,23 @@
 
         function LoginScreen({ onLogin }) {
             const [pin, setPin] = useState('');
-            const [error, setError] = useState(false);
+            const [error, setError] = useState('');
 
-            const handleLogin = () => {
+            const handleSubmit = () => {
                 const p = pin.trim().toLowerCase();
                 if(p === ADMIN_CODE) {
                     onLogin({role:'admin', name:'מנהל מערכת'});
                 } else if(AREA_MANAGERS[p]) {
                     onLogin({role:'manager', name:AREA_MANAGERS[p]});
                 } else {
-                    setError(true);
-                    setTimeout(() => setError(false), 3000);
+                    setError('קוד שגוי, אנא נסה שנית');
                     setPin('');
+                    setTimeout(() => setError(''), 3000);
                 }
             };
 
             return (
-                <div className="min-h-screen bg-[#F0F2F5] flex flex-col items-center justify-center p-6 overflow-hidden">
+                <div className="min-h-screen bg-[#F0F2F5] flex flex-col items-center justify-center p-6 w-full">
                     <div className="bg-white p-8 rounded-[2rem] shadow-xl w-full max-w-[340px] text-center border-b-8 border-slate-200">
                         <Logo className="h-12 mx-auto mb-6" />
                         <h1 className="text-xl font-black mb-6 text-[#262626]">כניסה למערכת</h1>
@@ -405,26 +389,26 @@
                         <input 
                             type="password" 
                             value={pin} 
-                            onChange={e=> { setPin(e.target.value); if(error) setError(false); }} 
-                            className={`w-full text-center text-2xl py-3 bg-slate-50 border-2 rounded-xl mb-2 outline-none transition ${error ? 'border-red-400 shake bg-red-50' : 'focus:border-[#9c7229]'}`} 
+                            onChange={e=>setPin(e.target.value)} 
+                            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+                            className="w-full text-center text-2xl py-3 bg-slate-50 border-2 rounded-xl mb-2 outline-none focus:border-[#9c7229] transition" 
                             placeholder="קוד כניסה" 
-                            onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
                         />
                         
-                        <div className={`text-red-500 text-xs font-bold mb-4 transition-opacity duration-300 ${error ? 'opacity-100' : 'opacity-0'}`}>
-                            הקוד שגוי, אנא נסה שנית
-                        </div>
-
+                        {error && <p className="text-red-500 text-xs font-bold mb-4 animate-pulse">{error}</p>}
+                        
                         <button 
-                            onClick={handleLogin} 
-                            className="w-full bg-[#262626] text-[#f6d19c] py-4 rounded-xl font-bold shadow-lg active:scale-95 transition"
+                            onClick={handleSubmit} 
+                            className="w-full bg-[#262626] text-[#f6d19c] py-4 rounded-xl font-bold shadow-lg active:scale-95 transition mt-2"
                         >
                             התחברות
                         </button>
-                    </div>
 
-                    <div className="mt-12 text-[10px] text-slate-400 font-medium">
-                        * כל הזכויות שמורות לקרדיבל פלוס בע״מ
+                        <div className="mt-8 pt-6 border-t border-slate-100">
+                             <p className="text-[10px] text-slate-400 font-medium">
+                                * כל הזכויות שמורות לקרדיבל פלוס בע״מ
+                             </p>
+                        </div>
                     </div>
                 </div>
             );
