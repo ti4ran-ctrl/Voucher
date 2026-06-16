@@ -176,7 +176,8 @@
                     const res = await response.json();
                     if (res.status === 'success') setData(res.data || []);
                     else setData([]);
-                } catch (e) { console.error(e); }
+                } catch (e) { alert("שגיאה: " + e.message); console.error(e); }
+
                 finally { setLoading(false); }
             };
 
