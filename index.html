@@ -57,9 +57,8 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useCallback } = React;
 
-        // ה-URL המעודכן שסיפקת לסנכרון עם הגוגל שיטס
         const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzyeXEMemISQzHcJu4qteFmNeQvJo4FgrAwFi6BT1U5tSwKOV1mAN8hGtS4qUUv7k4QQA/exec';
         
         const AREA_MANAGERS = {
@@ -68,38 +67,8 @@
             '034887919': 'שי סיידון',
             '021710553': 'אהוד מועלם',
             '301132023': 'מושיקו מוואס',
-            '311382501': 'מור רוזנבאום',
         };
         const ADMIN_CODE = 'credible';
-
-        // מנקה תווי כיווניות/רווחים בלתי-נראים (נפוצים בהעתקה מ-Google Sheets/Excel
-        // ואף בהעתקה בין עורכי טקסט), ומכווץ רווחים כפולים. לא הופך לאותיות קטנות
-        // ולא עושה שום סוג של "includes" - רק ניקוי.
-        const cleanExact = (s) => String(s || "")
-            .replace(/[\u200B-\u200F\u202A-\u202E\uFEFF]/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-
-        // מיפוי מפורש של כינויים אפשריים כפי שהם עשויים להופיע בעמודת "מנהל" בגיליון,
-        // כולל שם פרטי/משפחה בודד (למקרה שמזינים בגיליון רק קיצור).
-        // חשוב: ההתאמה תמיד תהיה שוויון מדויק של מילה שלמה (token), אף פעם לא הכלה
-        // של מחרוזת בתוך מחרוזת (includes) - כדי שלא ייווצרו התאמות שגויות בין שמות
-        // שמכילים אותיות משותפות (למשל "מושיקו" לא אמור להיתפס כ"שי").
-        const MANAGER_ALIASES_RAW = {
-            'טירן סיגורה': ['טירן סיגורה', 'טירן', 'סיגורה'],
-            'נחום נחום': ['נחום נחום', 'נחום'],
-            'שי סיידון': ['שי סיידון', 'שי', 'סיידון'],
-            'אהוד מועלם': ['אהוד מועלם', 'אהוד', 'מועלם', 'אודי'],
-            'מושיקו מוואס': ['מושיקו מוואס', 'מושיקו', 'מוואס'],
-            'מור רוזנבאום': ['מור רוזנבאום', 'מור', 'רוזנבאום'],
-        };
-
-        // גרסה מנורמלת של המיפוי - גם המפתחות וגם הערכים עוברים ניקוי, כדי שתווים
-        // נסתרים שאולי הצטרפו לטקסט העברי בזמן העריכה/ההעתקה לא ישברו את ההתאמה.
-        const MANAGER_ALIASES = {};
-        Object.entries(MANAGER_ALIASES_RAW).forEach(([key, arr]) => {
-            MANAGER_ALIASES[cleanExact(key)] = arr.map(cleanExact);
-        });
 
         const HEBREW_MONTHS = [
             {v: '01', n: 'ינואר'}, {v: '02', n: 'פברואר'}, {v: '03', n: 'מרץ'}, {v: '04', n: 'אפריל'},
@@ -183,6 +152,12 @@
             const [welcomeBanner, setWelcomeBanner] = useState(false);
             const [removingId, setRemovingId] = useState(null);
 
+            // Local cache to hide Google Sheets latency
+            const [localUpdates, setLocalUpdates] = useState(() => {
+                const saved = localStorage.getItem('v_local_updates');
+                return saved ? JSON.parse(saved) : {};
+            });
+
             const now = new Date();
             const [filterMonth, setFilterMonth] = useState((now.getMonth() + 1).toString().padStart(2, '0'));
             const [filterYear, setFilterYear] = useState(now.getFullYear().toString());
@@ -195,25 +170,83 @@
                 if (savedRole && savedName) setUser({ role: savedRole, name: savedName });
             }, []);
 
+            // Try to load cached data for instant viewing while fetching fresh data
+            useEffect(() => {
+                const cachedData = sessionStorage.getItem(`v_data_${filterMonth}_${filterYear}`);
+                if (cachedData) {
+                    setData(JSON.parse(cachedData));
+                }
+            }, [filterMonth, filterYear]);
+
             useEffect(() => {
                 if (user) fetchData(filterMonth, filterYear);
             }, [user, filterMonth, filterYear]);
 
             const fetchData = async (m, y) => {
-                setLoading(true);
+                // Only show loading if we don't have cached data
+                if (!sessionStorage.getItem(`v_data_${m}_${y}`)) {
+                    setLoading(true);
+                }
+                
                 try {
                     const response = await fetch(`${GOOGLE_WEB_APP_URL}?action=get&month=${m}&year=${y}`);
                     const res = await response.json();
-                    if (res.status === 'success') setData(res.data || []);
-                    else setData([]);
-                } catch (e) { console.error(e); }
-                finally { setLoading(false); }
+                    
+                    if (res.status === 'success') {
+                        let serverData = res.data || [];
+                        
+                        // Merge server data with our local optimistic updates
+                        const nowTime = Date.now();
+                        const validUpdates = { ...localUpdates };
+                        let cacheChanged = false;
+
+                        serverData = serverData.map(item => {
+                            if (validUpdates[item.id]) {
+                                // If server finally matches our local update, clear local cache for this item
+                                if (item.status === validUpdates[item.id].status) {
+                                    delete validUpdates[item.id];
+                                    cacheChanged = true;
+                                } else if (nowTime - validUpdates[item.id].timestamp < 5 * 60 * 1000) { 
+                                    // Server is slow (less than 5 mins passed), override with local status
+                                    item.status = validUpdates[item.id].status;
+                                } else {
+                                    // Local cache is too old, trust the server
+                                    delete validUpdates[item.id];
+                                    cacheChanged = true;
+                                }
+                            }
+                            return item;
+                        });
+
+                        if (cacheChanged) {
+                            setLocalUpdates(validUpdates);
+                            localStorage.setItem('v_local_updates', JSON.stringify(validUpdates));
+                        }
+
+                        setData(serverData);
+                        sessionStorage.setItem(`v_data_${m}_${y}`, JSON.stringify(serverData));
+                    } else {
+                        setData([]);
+                    }
+                } catch (e) { 
+                    console.error(e); 
+                } finally { 
+                    setLoading(false); 
+                }
             };
 
             const handleAction = async (id, actionType) => {
+                // 1. Optimistic Update (Immediate UI response)
+                const newLocalUpdates = { 
+                    ...localUpdates, 
+                    [id]: { status: actionType, timestamp: Date.now() } 
+                };
+                setLocalUpdates(newLocalUpdates);
+                localStorage.setItem('v_local_updates', JSON.stringify(newLocalUpdates));
+
                 if (user.role === 'manager') {
                     setRemovingId(id);
-                    setTimeout(async () => {
+                    setTimeout(() => {
                         setData(prev => prev.map(v => v.id === id ? { ...v, status: actionType } : v));
                         setRemovingId(null);
                         setToast('עודכן בהצלחה');
@@ -225,43 +258,44 @@
                     setTimeout(() => setToast(null), 2000);
                 }
 
+                // Update session storage cache so it doesn't flicker on tab switch
+                const currentData = JSON.parse(sessionStorage.getItem(`v_data_${filterMonth}_${filterYear}`) || '[]');
+                const updatedCache = currentData.map(v => v.id === id ? { ...v, status: actionType } : v);
+                sessionStorage.setItem(`v_data_${filterMonth}_${filterYear}`, JSON.stringify(updatedCache));
+
+                // 2. Network Request
                 try {
+                    // Send as text/plain to bypass strict CORS preflight (OPTIONS) in Google Apps Script
                     await fetch(GOOGLE_WEB_APP_URL, {
                         method: 'POST',
-                        mode: 'no-cors',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'updateStatus', id, status: actionType, month: filterMonth, year: filterYear })
+                        body: JSON.stringify({ action: 'updateStatus', id, status: actionType, month: filterMonth, year: filterYear }),
+                        headers: {
+                            'Content-Type': 'text/plain;charset=utf-8'
+                        }
                     });
-                } catch (e) { console.error(e); }
+                } catch (e) { 
+                    console.error("Failed to update server, but saved locally", e); 
+                }
             };
 
             const agencies = useMemo(() => Array.from(new Set(data.map(v => v.agency).filter(Boolean))).sort(), [data]);
 
             const filteredData = useMemo(() => {
-                // normalize רק לצורך חיפוש טקסט חופשי (searchTerm) - לא לשיוך מנהל אזור
-                const normalizeSearch = (s) => String(s || "").trim().toLowerCase();
-
+                const normalize = (s) => String(s || "").trim().toLowerCase();
                 return data.filter(v => {
-                    const rowMgr = cleanExact(v.manager);
-                    const myNameClean = cleanExact(user?.name);
-                    const myAliases = MANAGER_ALIASES[myNameClean] || [myNameClean];
-
-                    // התאמה מדויקת בלבד: או שהערך המלא בעמודה שווה לאחד הכינויים,
-                    // או שאחת מהמילים הבודדות בערך (טוקן שלם, לא מחרוזת חלקית)
-                    // שווה בדיוק לאחד הכינויים. כך "מושיקו" לעולם לא יתאים ל"שי",
-                    // כי בודקים שוויון מלא של מילה, לא הכלה שלה בתוך מילה אחרת.
-                    const isMyArea = (() => {
-                        if (user?.role !== 'manager') return true;
-                        if (myAliases.includes(rowMgr)) return true;
-                        const tokens = rowMgr.split(' ').filter(Boolean);
-                        return tokens.some(t => myAliases.includes(t));
-                    })();
-
+                    const rowMgr = normalize(v.manager);
+                    const myName = normalize(user?.name);
+                    
+                    const isEhuddin = myName.includes('אהוד מועלם');
+                    const isMyArea = user?.role === 'manager' 
+                        ? (rowMgr.includes(myName) || myName.includes(rowMgr) || (isEhuddin && (rowMgr.includes('אודי') || rowMgr === 'אודי')))
+                        : true;
+                    
                     if (user?.role === 'manager' && (v.status === 'נמסר' || v.status === 'לא נותנים')) return false;
 
                     const mAgency = filterAgency === 'All' || v.agency === filterAgency;
-                    const s = normalizeSearch(searchTerm);
-                    const mSearch = !s || [v.agentName, v.agency, v.customerName, v.importer].some(f => normalizeSearch(f).includes(s));
+                    const s = searchTerm.toLowerCase();
+                    const mSearch = !s || [v.agentName, v.agency, v.customerName, v.importer].some(f => normalize(f).includes(s));
                     
                     return isMyArea && mAgency && mSearch;
                 }).sort((a, b) => {
@@ -394,17 +428,7 @@
                                     </div>
                                 </div>
                             ))}
-                            {!loading && filteredData.length === 0 && (
-                                <div className="p-10 text-center text-slate-400 text-sm space-y-2">
-                                    <p>אין נתונים להצגה</p>
-                                    {user.role === 'manager' && data.length > 0 && (
-                                        <div className="text-[10px] text-slate-400 bg-slate-50 rounded-xl p-3 text-right leading-relaxed">
-                                            <p className="font-bold mb-1">לאבחון: הערכים שנמצאו בעמודת "מנהל" בגיליון לחודש זה:</p>
-                                            <p className="break-words">{Array.from(new Set(data.map(v => v.manager).filter(Boolean))).join(' | ') || 'העמודה ריקה'}</p>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                            {!loading && filteredData.length === 0 && <div className="p-10 text-center text-slate-400 text-sm">אין נתונים להצגה</div>}
                         </div>
                     </main>
                     {toast && <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-[#262626] text-[#f6d19c] px-6 py-2 rounded-full shadow-xl text-xs font-bold border border-[#9c7229] z-[200]">{toast}</div>}
