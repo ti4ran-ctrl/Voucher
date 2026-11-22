@@ -54,14 +54,10 @@ async function apiGet(m,y){
 const apiPost = body => fetchT(URL_API,{method:'POST',body:JSON.stringify(body),headers:{'Content-Type':'text/plain;charset=utf-8'}});
 
 const norm = s => String(s||'').trim().toLowerCase();
-const words = s => norm(s).split(/\s+/).filter(Boolean);
-// התאמה לפי מילים שלמות (לא תת-מחרוזת), כדי למנוע ערבוב בין מנהלים
 const inArea = (v,user) => {
   if(user.role!=='manager') return true;
-  const rt=words(v.manager), mt=words(user.name);
-  if(!rt.length) return false;
-  if(mt.join(' ')==='אהוד מועלם' && rt.includes('אודי')) return true;
-  return rt.every(t=>mt.includes(t)) || mt.every(t=>rt.includes(t));
+  const r=norm(v.manager), me=norm(user.name);
+  return r.includes(me)||me.includes(r)||(me.includes('אהוד מועלם')&&r.includes('אודי'));
 };
 const summarize = list => list.reduce((a,v)=>{
   if(v.st===NO) return a;
@@ -147,7 +143,7 @@ function Bar({pct,color='#9c7229'}){
   return <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full" style={{width:Math.min(100,pct)+'%',background:color}}/></div>;
 }
 
-function Dashboard({scoped,user,onPickManager}){
+function Dashboard({scoped,user,onPickManager,onPickAgency}){
   const s = summarize(scoped);
   const pct = s.total ? s.done/s.total*100 : 0;
   const byAgency = groupBy(scoped, v=>v.agency);
@@ -155,7 +151,7 @@ function Dashboard({scoped,user,onPickManager}){
   const Row = ({g,onClick}) => (
     <div onClick={onClick} className={`py-3 border-b last:border-0 ${onClick?'cursor-pointer active:bg-slate-50':''}`}>
       <div className="flex justify-between items-baseline mb-1.5">
-        <span className="font-bold text-[16px]">{g.name}</span>
+        <span className="font-bold text-[16px]">{g.name}{onClick && <span className="text-slate-300 mr-1.5">‹</span>}</span>
         <span className="text-[15px] font-bold">{money(g.open)} <span className="text-slate-400 font-normal text-[13px]">פתוח</span></span>
       </div>
       <Bar pct={g.total?g.done/g.total*100:0} color="#10b981"/>
@@ -190,7 +186,7 @@ function Dashboard({scoped,user,onPickManager}){
       )}
       <div className="bg-white rounded-2xl p-4 shadow-sm border">
         <h3 className="font-extrabold text-[17px] mb-1">לפי סוכנות</h3>
-        {byAgency.length? byAgency.map(g=><Row key={g.name} g={g}/>) : <div className="text-slate-400 py-6 text-center">אין נתונים לחודש זה</div>}
+        {byAgency.length? byAgency.map(g=><Row key={g.name} g={g} onClick={()=>onPickAgency(g.name)}/>) : <div className="text-slate-400 py-6 text-center">אין נתונים לחודש זה</div>}
       </div>
     </div>
   );
@@ -357,9 +353,14 @@ function App(){
 
         {tab==='dash' ? (
           loading && !data.length ? <Spinner/> :
-          <Dashboard scoped={scoped} user={user} onPickManager={n=>{setMgr(n);setTab('list')}}/>
+          <Dashboard scoped={scoped} user={user} onPickManager={n=>{setMgr(n);setAgency('All');setTab('list')}} onPickAgency={n=>{setAgency(n);setMgr('All');setTab('list')}}/>
         ) : (
           <>
+            {(agency!=='All'||mgr!=='All') && (
+              <button onClick={()=>{setAgency('All');setMgr('All');setTab('dash')}} className="w-full bg-white border rounded-2xl py-3 font-bold text-[15px] shadow-sm">
+                חזרה לדשבורד | מציג: {agency!=='All'?agency:mgr}
+              </button>
+            )}
             <div className="bg-white rounded-2xl shadow-sm border p-3 space-y-2">
               <input value={q} onChange={e=>setQ(e.target.value)} placeholder="חיפוש לקוח, סוכן, סוכנות, יבואן..." className="w-full bg-slate-50 border rounded-xl px-4 py-3 outline-none"/>
               <div className="flex gap-2">
