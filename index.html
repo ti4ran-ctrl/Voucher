@@ -1,1 +1,456 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Credible Plus - שוברים</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.28.4/babel.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;700;800&display=swap');
+body{font-family:'Assistant',sans-serif;background:#F0F2F5;font-size:15px;-webkit-tap-highlight-color:transparent;overflow-x:hidden}
+input,select{font-size:16px!important}
+.out{animation:out .4s forwards ease-in-out}
+@keyframes out{to{transform:translateX(100%);opacity:0}}
+.spin{animation:sp .8s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+const URL_API = 'https://script.google.com/macros/s/AKfycbzyeXEMemISQzHcJu4qteFmNeQvJo4FgrAwFi6BT1U5tSwKOV1mAN8hGtS4qUUv7k4QQA/exec';
+const AREA_MANAGERS = {
+  '037122595':'טירן סיגורה','040476012':'נחום נחום','034887919':'שי סיידון',
+  '021710553':'אהוד מועלם','311382501':'מור רוזנבאום'
+};
+const ADMIN_CODE = 'credible';
+const MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+const DONE='נמסר', NO='לא נותנים';
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const money = n => '₪' + Math.round(n||0).toLocaleString('he-IL');
+const store = {
+  get:(k,d)=>{ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d }catch{ return d } },
+  set:(k,v)=>{ try{ localStorage.setItem(k,JSON.stringify(v)) }catch{} }
+};
+
+async function fetchT(url, opt, ms=20000){
+  let t;
+  const timeout = new Promise((_,rej)=>{ t = setTimeout(()=>rej(new Error('הבקשה לשרת לקחה יותר מדי זמן')), ms); });
+  try { return await Promise.race([fetch(url, opt), timeout]); } finally { clearTimeout(t); }
+}
+async function apiGet(m,y){
+  const r = await fetchT(`${URL_API}?action=get&month=${m}&year=${y}`, undefined, 60000);
+  const txt = await r.text();
+  let j;
+  try{ j = JSON.parse(txt); }catch{ throw new Error('תגובה לא תקינה מהשרת: '+txt.slice(0,80)); }
+  if(j.status!=='success') throw new Error('השרת החזיר: '+(j.message||j.status||'שגיאה'));
+  return j.data||[];
+}
+const apiPost = body => fetchT(URL_API,{method:'POST',body:JSON.stringify(body),headers:{'Content-Type':'text/plain;charset=utf-8'}});
+
+const norm = s => String(s||'').trim().toLowerCase();
+const words = s => norm(s).split(/\s+/).filter(Boolean);
+// התאמה לפי מילים שלמות (לא תת-מחרוזת), כדי למנוע ערבוב בין מנהלים
+const inArea = (v,user) => {
+  if(user.role!=='manager') return true;
+  const rt=words(v.manager), mt=words(user.name);
+  if(!rt.length) return false;
+  if(mt.join(' ')==='אהוד מועלם' && rt.includes('אודי')) return true;
+  return rt.every(t=>mt.includes(t)) || mt.every(t=>rt.includes(t));
+};
+const summarize = list => list.reduce((a,v)=>{
+  if(v.st===NO) return a;
+  const x=Number(v.amount)||0; a.total+=x; a.count++;
+  if(v.st===DONE){a.done+=x;a.doneCount++} else {a.open+=x;a.openCount++}
+  return a;
+},{total:0,done:0,open:0,count:0,doneCount:0,openCount:0});
+const groupBy = (list,key) => {
+  const m={};
+  list.forEach(v=>{const k=(key(v)||'ללא שם').trim(); (m[k]=m[k]||[]).push(v)});
+  return Object.entries(m).map(([name,items])=>({name,...summarize(items)})).filter(g=>g.count>0).sort((a,b)=>b.open-a.open);
+};
+
+const Ic = {
+  check:<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
+  trash:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>,
+  out:<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+  dl:<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+  refresh:<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.5 15a9 9 0 1 1-2.1-9.4L23 10"/></svg>
+};
+
+const Logo = ({ className = "h-8", lightMode = false }) => {
+  const textColor = lightMode ? "#FFFFFF" : "#262626";
+  return (
+    <svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" xmlnsXlink="http://www.w3.org/1999/xlink" viewBox="0 0 301.68 65.71" className={className}>
+      <defs>
+        <linearGradient id="lg-1" x1="209.98" y1="58.62" x2="301.68" y2="58.62" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#f6d19c"/><stop offset=".36" stopColor="#d4a55f"/><stop offset=".69" stopColor="#c89644"/><stop offset="1" stopColor="#9c7229"/>
+        </linearGradient>
+        <linearGradient id="lg-2" x1="0" y1="58.62" x2="91.7" y2="58.62" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#9c7229"/><stop offset=".31" stopColor="#c89644"/><stop offset=".64" stopColor="#d4a55f"/><stop offset="1" stopColor="#f6d19c"/>
+        </linearGradient>
+        <linearGradient id="lg-3" x1="205.46" y1="34.15" x2="234.12" y2="5.49" xlinkHref="#lg-2"/>
+        <linearGradient id="lg-4" x1="231.49" y1="36.91" x2="256.16" y2="12.23" xlinkHref="#lg-2"/>
+        <linearGradient id="lg-5" x1="253.6" y1="33.89" x2="282.52" y2="4.96" xlinkHref="#lg-2"/>
+        <linearGradient id="lg-6" x1="278.37" y1="35.09" x2="304.84" y2="8.61" xlinkHref="#lg-2"/>
+        <linearGradient id="lg-7" x1="2.17" y1="41.24" x2="41.51" y2="1.89" xlinkHref="#lg-2"/>
+      </defs>
+      <g>
+        <g fill={textColor}>
+          <path d="m100.87,59.41v-3.86c0-.37-.12-.49-.46-.49h-.14c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h.61c.68,0,1.11.35,1.11,1.03v4.35c0,.14-.08.21-.21.21h-.69c-.14,0-.21-.08-.21-.21Z"/>
+          <path d="m110.13,62.95l-3.49-5.02c-1.32.77-1.6,2.09-1.6,3.1,0,.91.17,1.38.31,1.84.05.14-.05.23-.18.23h-.68c-.15,0-.21-.09-.26-.23-.14-.43-.31-1.04-.31-1.9,0-1.46.48-3.03,2.1-3.92l-1.92-2.76c-.09-.12-.03-.25.11-.25h.86c.12,0,.18.05.26.15l3.26,4.68c1.4-.71,1.69-1.9,1.69-2.93,0-.74-.15-1.21-.29-1.69-.03-.12.04-.21.18-.21h.69c.14,0,.2.09.25.23.14.41.29,1,.29,1.78,0,1.41-.51,2.86-2.2,3.72l2.15,3.09c.09.12.03.25-.11.25h-.86c-.12,0-.18-.05-.26-.15Z"/>
+          <path d="m118.85,62.89v-5.7c0-1.44-.43-2.1-2.04-2.1h-3.49c-.14,0-.21-.08-.21-.21v-.61c0-.14.08-.21.21-.21h3.96c1.83,0,2.72,1.06,2.72,2.67v6.17c0,.14-.08.21-.21.21h-.72c-.14,0-.21-.08-.21-.21Z"/>
+          <path d="m122.48,59.06v-4.81c0-.14.08-.21.21-.21h.72c.14,0,.21.08.21.21v3.62h.68c1.49,0,2.06-.52,2.06-1.78v-1.84c0-.14.08-.21.21-.21h.69c.14,0,.21.08.21.21v1.97c0,1.6-.83,2.66-2.99,2.66h-.86c.03,2.47,1.12,3.23,3.29,3.23s3.27-.78,3.27-3.35v-4.5c0-.14.08-.21.21-.21h.72c.14,0,.21.08.21.21v4.81c0,2.84-1.52,4.16-4.42,4.16s-4.44-1.32-4.44-4.16Z"/>
+          <path d="m139.73,62.95l-3.49-5.02c-1.32.77-1.6,2.09-1.6,3.1,0,.91.17,1.38.31,1.84.05.14-.05.23-.18.23h-.68c-.15,0-.21-.09-.26-.23-.14-.43-.31-1.04-.31-1.9,0-1.46.48-3.03,2.1-3.92l-1.92-2.76c-.09-.12-.03-.25.11-.25h.86c.12,0,.18.05.26.15l3.26,4.68c1.4-.71,1.69-1.9,1.69-2.93,0-.74-.15-1.21-.29-1.69-.03-.12.04-.21.18-.21h.69c.14,0,.2.09.25.23.14.41.29,1,.29,1.78,0,1.41-.51,2.86-2.2,3.72l2.15,3.09c.09.12.03.25-.11.25h-.86c-.12,0-.18-.05-.26-.15Z"/>
+          <path d="m146.36,59.41v-3.86c0-.37-.12-.49-.46-.49h-.14c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h.61c.68,0,1.11.35,1.11,1.03v4.35c0,.14-.08.21-.21.21h-.69c-.14,0-.21-.08-.21-.21Z"/>
+          <path d="m150.2,62.89v-7.33c0-.37-.12-.49-.46-.49h-.58c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h1.11c.68,0,1.09.35,1.09,1.03v7.82c0,.14-.08.21-.21.21h-.72c-.14,0-.21-.08-.21-.21Z"/>
+          <path d="m154.09,62.89v-7.33c0-.37-.12-.49-.46-.49h-.58c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h1.11c.68,0,1.09.35,1.09,1.03v7.82c0,.14-.08.21-.21.21h-.72c-.14,0-.21-.08-.21-.21Z"/>
+          <path d="m157.53,59.41v-3.86c0-.37-.12-.49-.46-.49h-.14c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h.61c.68,0,1.11.35,1.11,1.03v4.35c0,.14-.08.21-.21.21h-.69c-.14,0-.21-.08-.21-.21Z"/>
+          <path d="m161.05,62.89v-.61c0-.14.08-.21.21-.21h.17c3.41,0,4.82-2.83,4.82-6.14v-.52c0-.2-.08-.31-.28-.31h-5.1c-.34,0-.52-.21-.52-.55v-1.97c0-.14.08-.21.21-.21h.71c.14,0,.21.08.21.21v1.47h5.25c.37,0,.64.28.64.66v1.55c0,3.64-1.98,6.85-5.81,6.85h-.32c-.14,0-.21-.08-.21-.21Z"/>
+          <path d="m170.2,62.89v-7.33c0-.37-.12-.49-.46-.49h-.58c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h1.11c.68,0,1.09.35,1.09,1.03v7.82c0,.14-.08.21-.21.21h-.72c-.14,0-.21-.08-.21-.21Z"/>
+          <path d="m176.45,65.5v-11.24c0-.14.08-.21.22-.21h.72c.14,0,.21.08.21.21v4.87h1.15c2.13,0,2.79-.86,2.79-2.32v-2.55c0-.14.08-.21.22-.21h.72c.14,0,.21.08.21.21v2.66c0,1.77-.91,3.26-3.62,3.26h-1.47v5.33c0,.14-.08.21-.21.21h-.72c-.14,0-.22-.08-.22-.21Z"/>
+          <path d="m185.28,62.89v-7.33c0-.37-.12-.49-.46-.49h-.58c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h1.11c.68,0,1.09.35,1.09,1.03v7.82c0,.14-.08.21-.21.21h-.72c-.14,0-.21-.08-.21-.21Z"/>
+          <path d="m187.92,62.89v-.61c0-.14.08-.21.21-.21h2.13l-1.69-7.8c-.03-.14.08-.21.21-.21h.74c.14,0,.18.08.21.21l1.67,7.79c2.03-.18,2.92-1.44,2.92-3.49v-4.3c0-.14.08-.21.21-.21h.72c0,.14.08.21.21.21v4.75c0,2.4-1.52,4.1-4.15,4.1h-3.21c-.14,0-.21-.08-.21-.21Z"/>
+          <path d="m197.71,59.41v-3.86c0-.37-.12-.49-.46-.49h-.14c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h.61c.68,0,1.11.35,1.11,1.03v4.35c0,.14-.08.21-.21.21h-.69c-.14,0-.21-.08-.21-.21Z"/>
+          <path d="m201.1,59.41v-3.86c0-.37-.12-.49-.46-.49h-.14c-.14,0-.2-.08-.2-.21v-.6c0-.14.06-.21.2-.21h.61c.68,0,1.11.35,1.11,1.03v4.35c0,.14-.08.21-.21.21h-.69c-.14,0-.21-.08-.21-.21Z"/>
+        </g>
+        <rect fill="url(#lg-1)" x="209.98" y="58.3" width="91.7" height=".64"/>
+        <rect fill="url(#lg-2)" y="58.3" width="91.7" height=".64"/>
+        <g fill={textColor}>
+          <path d="m59.83.12c-6.52,0-9.2,4.63-9.2,10.78v21.81c0,6.15,2.68,10.78,9.2,10.78s9.2-4.63,9.2-10.78v-4.87h-2.68v5.06c0,4.57-1.77,7.98-6.46,7.98s-6.46-3.41-6.46-7.98V10.72c0-4.57,1.77-8.04,6.46-8.04s6.46,3.47,6.46,8.04v3.72h2.68v-3.53c0-6.15-2.68-10.78-9.2-10.78Z"/>
+          <path d="m91.63,31.38c0-4.63-1.77-7.74-6.15-8.71,4.2-.97,6.15-3.84,6.15-8.83v-3.72c0-6.03-2.62-9.63-9.14-9.63h-8.89v42.65h2.8v-19.07h4.45c4.87,0,7.98,1.58,7.98,7.25v6.7c0,2.32.18,3.84.91,5.12h2.92c-.91-1.4-1.03-3.35-1.03-5.12v-6.64Zm-15.23-9.87V3.05h6.03c4.63,0,6.4,2.74,6.4,7.31v4.02c0,5.73-2.92,7.13-7.92,7.13h-4.51Z"/>
+          <polygon points="97.11 43.13 113.93 43.13 113.93 40.58 99.91 40.58 99.91 22.79 111.55 22.79 111.55 20.23 99.91 20.23 99.91 3.05 113.93 3.05 113.93 .49 97.11 .49 97.11 43.13"/>
+          <path d="m127.88.49h-9.38v42.65h9.38c6.58,0,9.44-4.33,9.44-10.6V11.09c0-6.28-2.86-10.6-9.44-10.6Zm6.64,32.17c0,4.69-1.95,7.92-6.7,7.92h-6.52V3.05h6.52c4.69,0,6.7,3.23,6.7,7.92v21.69Z"/>
+          <rect x="141.95" y=".49" width="2.8" height="42.65"/>
+          <path d="m161.69,20.41c4.33-.91,5.61-3.78,5.61-8.41v-2.44c0-5.91-2.32-9.08-8.71-9.08h-8.96v42.65h9.14c6.52,0,9.32-3.72,9.32-9.87v-3.72c0-4.81-1.77-8.22-6.4-9.14Zm-9.26-17.36h6.09c4.57,0,5.97,2.32,5.97,6.76v2.74c0,5.42-2.32,6.76-7.31,6.76h-4.75V3.05Zm12.85,30.16c0,4.75-1.83,7.37-6.52,7.37h-6.34v-18.7h5.3c5.06,0,7.55,1.95,7.55,7.49v3.84Z"/>
+          <polygon points="175.46 .49 172.65 .49 172.65 43.13 188.86 43.13 188.86 40.58 175.46 40.58 175.46 .49"/>
+          <polygon points="209.88 3.05 209.88 .49 193.06 .49 193.06 43.13 209.88 43.13 209.88 40.58 195.87 40.58 195.87 22.79 207.5 22.79 207.5 20.23 195.87 20.23 195.87 3.05 209.88 3.05"/>
+        </g>
+        <g>
+          <path fill="url(#lg-3)" d="m224.32.49h-9.87v42.65h6.7v-16.02h3.17c6.7,0,9.99-3.72,9.99-10.54v-5.54c0-6.82-3.29-10.54-9.99-10.54Zm3.29,16.51c0,3.05-1.16,4.02-3.29,4.02h-3.17V6.58h3.17c2.13,0,3.29.97,3.29,4.02v6.4Z"/>
+          <polygon fill="url(#lg-4)" points="244.42 .49 237.72 .49 237.72 43.13 255.45 43.13 255.45 37.04 244.42 37.04 244.42 .49"/>
+          <path fill="url(#lg-5)" d="m271.71,33.39c0,3.05-1.34,4.14-3.47,4.14s-3.47-1.1-3.47-4.14V.49h-6.7v32.47c0,6.82,3.41,10.72,9.99,10.72s9.99-3.9,9.99-10.72V.49h-6.34v32.9Z"/>
+          <path fill="url(#lg-6)" d="m288.47,10.3c0-3.05,1.22-4.2,3.35-4.2s3.35,1.16,3.35,4.2v1.77h6.34v-1.34c0-6.82-3.35-10.72-9.87-10.72s-9.87,3.9-9.87,10.72c0,12.18,13.1,13.83,13.1,22.6,0,3.05-1.34,4.14-3.47,4.14s-3.47-1.1-3.47-4.14v-3.05h-6.34v2.62c0,6.82,3.41,10.72,9.99,10.72s9.99-3.9,9.99-10.72c0-12.18-13.1-13.83-13.1-22.6Z"/>
+        </g>
+        <path fill="url(#lg-7)" d="m32.51,38.57h-4c-.99,0-1.79-.8-1.79-1.79v-1.55c-.03-.21-.06-.42-.06-.63v-9.22h-9.22c-.14,0-.28,0-.42-.02h-1.62c-.99,0-1.79-.8-1.79-1.79v-4c0-.99.8-1.79,1.79-1.79h11.26v-9.21c0-.22.02-.42.06-.63v-1.38c0-.99.8-1.79,1.79-1.79h4c.99,0,1.79.8,1.79,1.79v11.22h9.1V6.47c0-3.57-2.9-6.47-6.47-6.47H6.74C3.17,0,.27,2.9,.27,6.47v30.2c0,3.57,2.9,6.47,6.47,6.47h30.2c3.57,0,6.47-2.9,6.47-6.47v-11.28h-9.1v11.4c0,.99-.8,1.79-1.79,1.79Z"/>
+      </g>
+    </svg>
+  );
+};
+
+function Bar({pct,color='#9c7229'}){
+  return <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full" style={{width:Math.min(100,pct)+'%',background:color}}/></div>;
+}
+
+function Dashboard({scoped,user,onPickManager}){
+  const s = summarize(scoped);
+  const pct = s.total ? s.done/s.total*100 : 0;
+  const byAgency = groupBy(scoped, v=>v.agency);
+  const byManager = user.role==='admin' ? groupBy(scoped, v=>v.manager) : [];
+  const Row = ({g,onClick}) => (
+    <div onClick={onClick} className={`py-3 border-b last:border-0 ${onClick?'cursor-pointer active:bg-slate-50':''}`}>
+      <div className="flex justify-between items-baseline mb-1.5">
+        <span className="font-bold text-[16px]">{g.name}</span>
+        <span className="text-[15px] font-bold">{money(g.open)} <span className="text-slate-400 font-normal text-[13px]">פתוח</span></span>
+      </div>
+      <Bar pct={g.total?g.done/g.total*100:0} color="#10b981"/>
+      <div className="flex justify-between text-[13px] text-slate-500 mt-1.5">
+        <span>נמסרו {g.doneCount} מתוך {g.count}</span><span>{money(g.done)} מתוך {money(g.total)}</span>
+      </div>
+    </div>
+  );
+  return (
+    <div className="space-y-3">
+      <div className="bg-[#262626] text-white rounded-3xl p-5 shadow border-b-4 border-[#9c7229]">
+        <div className="text-[14px] opacity-70">{user.role==='admin'?'כל האזורים':'האזור שלי'} · יתרה למסירה</div>
+        <div className="text-[38px] font-black leading-tight" style={{color:'#f6d19c'}}>{money(s.open)}</div>
+        <div className="mt-3"><Bar pct={pct} color="#10b981"/></div>
+        <div className="flex justify-between text-[14px] mt-2 opacity-90">
+          <span>נמסר {money(s.done)} ({Math.round(pct)}%)</span><span>סה"כ {money(s.total)}</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white rounded-2xl p-4 border-b-4 border-amber-400 text-center shadow-sm">
+          <div className="text-[30px] font-black">{s.openCount}</div><div className="text-[14px] text-slate-500">שוברים ממתינים</div>
+        </div>
+        <div className="bg-white rounded-2xl p-4 border-b-4 border-emerald-500 text-center shadow-sm">
+          <div className="text-[30px] font-black">{s.doneCount}</div><div className="text-[14px] text-slate-500">שוברים שנמסרו</div>
+        </div>
+      </div>
+      {user.role==='admin' && byManager.length>0 && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border">
+          <h3 className="font-extrabold text-[17px] mb-1">לפי מנהל אזור</h3>
+          {byManager.map(g=><Row key={g.name} g={g} onClick={()=>onPickManager(g.name)}/>)}
+        </div>
+      )}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border">
+        <h3 className="font-extrabold text-[17px] mb-1">לפי סוכנות</h3>
+        {byAgency.length? byAgency.map(g=><Row key={g.name} g={g}/>) : <div className="text-slate-400 py-6 text-center">אין נתונים לחודש זה</div>}
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const [user,setUser] = useState(()=>store.get('v_user',null));
+  const [data,setData] = useState([]);
+  const [loading,setLoading] = useState(false);
+  const [loadErr,setLoadErr] = useState(false);
+  const [updatedAt,setUpdatedAt] = useState(null);
+  const [online,setOnline] = useState(navigator.onLine);
+  const [toast,setToast] = useState(null);
+  const [confirm,setConfirm] = useState(null);
+  const [leaving,setLeaving] = useState(null);
+  const [tab,setTab] = useState('dash');
+  const [showDone,setShowDone] = useState(false);
+  const now = new Date();
+  const [m,setM] = useState(String(now.getMonth()+1).padStart(2,'0'));
+  const [y,setY] = useState(String(now.getFullYear()));
+  const [agency,setAgency] = useState('All');
+  const [mgr,setMgr] = useState('All');
+  const [q,setQ] = useState('');
+
+  // תור עדכונים: id -> {status,month,year,state:'syncing'|'failed'}
+  const [pend,setPend] = useState(()=>store.get('v_pending',{}));
+  const pendRef = useRef(pend); pendRef.current = pend;
+  const mRef = useRef(m), yRef = useRef(y); mRef.current=m; yRef.current=y;
+  const changePend = fn => { const n=fn({...pendRef.current}); pendRef.current=n; setPend(n); store.set('v_pending',n); };
+  const say = (text,bad) => { setToast({text,bad}); setTimeout(()=>setToast(null), bad?4500:2200); };
+
+  const years = useMemo(()=>{const c=now.getFullYear();return [c-2,c-1,c,c+1].map(String)},[]);
+
+  const load = useCallback(async (mm,yy,silent)=>{
+    const key=`v_data_${mm}_${yy}`;
+    if(!silent){ const c=sessionStorage.getItem(key); if(c) setData(JSON.parse(c)); else setLoading(true); }
+    try{
+      let rows;
+      try{ rows = await apiGet(mm,yy); }catch(e1){ await sleep(1500); rows = await apiGet(mm,yy); }
+      if(mRef.current===mm && yRef.current===yy){ setData(rows); setUpdatedAt(new Date()); setLoadErr(false); }
+      try{sessionStorage.setItem(key,JSON.stringify(rows))}catch{}
+    }catch(e){ console.error(e); setLoadErr(String((e&&e.message)||e)); }
+    finally{ setLoading(false); }
+  },[]);
+
+  useEffect(()=>{ if(user) load(m,y); },[user,m,y]);
+
+  // שליחה + אימות מול הגיליון. "הצלחה" רק אם השרת באמת מחזיר את הסטטוס החדש.
+  const push = useCallback(async id=>{
+    const p = pendRef.current[id]; if(!p) return;
+    changePend(s=>({...s,[id]:{...p,state:'syncing'}}));
+    let ok=false, fresh=null;
+    try{
+      await apiPost({action:'updateStatus',id,status:p.status,month:p.month,year:p.year});
+      for(let i=0;i<4&&!ok;i++){
+        await sleep(i?1500:700);
+        const rows = await apiGet(p.month,p.year);
+        const row = rows.find(r=>String(r.id)===String(id));
+        if(row && row.status===p.status){ ok=true; fresh=rows; }
+      }
+    }catch(e){ console.error(e); }
+    const cur = pendRef.current[id];
+    if(!cur || cur.status!==p.status) return; // הוחלף בעדכון חדש יותר
+    if(ok){
+      if(mRef.current===p.month && yRef.current===p.year) setData(fresh);
+      try{sessionStorage.setItem(`v_data_${p.month}_${p.year}`,JSON.stringify(fresh))}catch{}
+      changePend(s=>{const n={...s};delete n[id];return n;});
+      say('נשמר בגיליון ✓');
+    }else{
+      changePend(s=>({...s,[id]:{...p,state:'failed'}}));
+      say('העדכון לא נשמר בגיליון. לחץ "נסה שוב" בשורה',true);
+    }
+  },[]);
+
+  const act = (id,status)=>{
+    changePend(s=>({...s,[id]:{status,month:m,year:y,state:'syncing'}}));
+    if(user.role==='manager') setLeaving(id), setTimeout(()=>setLeaving(null),400);
+    push(id);
+  };
+
+  // ניסיון חוזר אוטומטי: בכניסה ובחזרת חיבור
+  useEffect(()=>{
+    const retry=()=>{ setOnline(true); Object.keys(pendRef.current).forEach(id=>{ if(pendRef.current[id].state!=='syncing') push(id); }); };
+    const off=()=>setOnline(false);
+    window.addEventListener('online',retry); window.addEventListener('offline',off);
+    if(user){ Object.keys(pendRef.current).forEach(id=>push(id)); }
+    return ()=>{window.removeEventListener('online',retry);window.removeEventListener('offline',off)};
+  },[user]);
+
+  const rows = useMemo(()=>data.map(v=>({...v, st: pend[v.id]?.status ?? v.status, sync: pend[v.id]?.state})),[data,pend]);
+  const scoped = useMemo(()=>rows.filter(v=>user&&inArea(v,user)),[rows,user]);
+  const agencies = useMemo(()=>[...new Set(scoped.map(v=>v.agency).filter(Boolean))].sort(),[scoped]);
+  const managers = useMemo(()=>[...new Set(scoped.map(v=>(v.manager||'').trim()).filter(Boolean))].sort(),[scoped]);
+
+  const list = useMemo(()=>{
+    const s=norm(q);
+    return scoped.filter(v=>{
+      if(user.role==='manager' && !showDone && !v.sync && (v.st===DONE||v.st===NO)) return false;
+      if(agency!=='All' && v.agency!==agency) return false;
+      if(mgr!=='All' && (v.manager||'').trim()!==mgr) return false;
+      return !s || [v.agentName,v.agency,v.customerName,v.importer].some(f=>norm(f).includes(s));
+    }).sort((a,b)=>{
+      const w=x=>x==='נמסר'?1:x==='לא נותנים'?2:0;
+      return w(a.st)-w(b.st) || (a.agency||'').localeCompare(b.agency||'','he');
+    });
+  },[scoped,agency,mgr,q,showDone,user]);
+
+  const exportCsv = ()=>{
+    const c=s=>`"${String(s??'').replace(/"/g,'""')}"`;
+    let csv='לקוח,יבואן,סוכנות,סוכן,מנהל,סכום,סטטוס\n';
+    list.forEach(v=>{csv+=[v.customerName,v.importer,v.agency,v.agentName,v.manager,v.amount,v.st||'ממתין'].map(c).join(',')+'\n'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'}));
+    a.download=`דוח_שוברים_${m}_${y}.csv`; document.body.appendChild(a); a.click(); a.remove();
+  };
+
+  const login = u=>{ setUser(u); store.set('v_user',u); };
+  const logout = ()=>{ localStorage.removeItem('v_user'); sessionStorage.clear(); setUser(null); setData([]); };
+
+  if(!user) return <Login onLogin={login}/>;
+
+  const pendCount = Object.keys(pend).length;
+  const failedCount = Object.values(pend).filter(p=>p.state==='failed').length;
+
+  return (
+    <div className="min-h-screen pb-24 w-full">
+      <nav className="bg-[#262626] text-white sticky top-0 z-40 border-b border-[#9c7229]/40 shadow-lg">
+        <div className="max-w-3xl mx-auto px-4 py-3 flex justify-between items-center">
+          <div>
+            <Logo className="h-8 w-auto" lightMode={true}/>
+            <span className="text-[13px] text-[#f6d19c] font-bold bg-[#9c7229]/25 px-2.5 py-0.5 rounded-md inline-block mt-1">{user.name}</span>
+          </div>
+          <div className="flex gap-1">
+            <button aria-label="רענון" onClick={()=>load(m,y,true)} className="p-2.5 hover:bg-white/10 rounded-xl text-[#f6d19c]"><span className={loading?'spin inline-block':'inline-block'}>{Ic.refresh}</span></button>
+            {user.role==='admin' && <button aria-label="ייצוא" onClick={exportCsv} className="p-2.5 hover:bg-white/10 rounded-xl text-[#f6d19c]">{Ic.dl}</button>}
+            <button aria-label="התנתקות" onClick={logout} className="p-2.5 hover:bg-white/10 rounded-xl">{Ic.out}</button>
+          </div>
+        </div>
+        {(!online||loadErr||pendCount>0) && (
+          <div className={`text-center text-[14px] font-bold py-1.5 ${(!online||loadErr||failedCount)?'bg-red-600':'bg-amber-500 text-black'}`}>
+            {!online ? 'אין חיבור לאינטרנט. עדכונים יישלחו כשהחיבור יחזור'
+              : failedCount ? `${failedCount} עדכונים לא נשמרו בגיליון`
+              : loadErr ? <span>טעינת הנתונים נכשלה <button className="underline mr-2" onClick={()=>load(m,y)}>נסה שוב</button><span className="block text-[12px] font-normal opacity-90 px-3">{String(loadErr)}</span></span>
+              : `מסנכרן ${pendCount} עדכונים מול הגיליון...`}
+          </div>
+        )}
+      </nav>
+
+      <main className="max-w-3xl mx-auto p-3 space-y-3">
+        <div className="bg-white rounded-2xl shadow-sm border p-3 flex gap-2">
+          <select value={m} onChange={e=>setM(e.target.value)} className="bg-slate-50 border rounded-xl py-2.5 px-3 flex-1">
+            {MONTHS.map((n,i)=><option key={i} value={String(i+1).padStart(2,'0')}>{n}</option>)}
+          </select>
+          <select value={y} onChange={e=>setY(e.target.value)} className="bg-slate-50 border rounded-xl py-2.5 px-3 w-28">
+            {years.map(v=><option key={v}>{v}</option>)}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-2 bg-white rounded-2xl p-1 border shadow-sm text-[16px] font-bold">
+          {[['dash','דשבורד'],['list','שוברים']].map(([k,n])=>(
+            <button key={k} onClick={()=>setTab(k)} className={`py-2.5 rounded-xl transition ${tab===k?'bg-[#262626] text-[#f6d19c]':'text-slate-500'}`}>{n}</button>
+          ))}
+        </div>
+
+        {tab==='dash' ? (
+          loading && !data.length ? <Spinner/> :
+          <Dashboard scoped={scoped} user={user} onPickManager={n=>{setMgr(n);setTab('list')}}/>
+        ) : (
+          <>
+            <div className="bg-white rounded-2xl shadow-sm border p-3 space-y-2">
+              <input value={q} onChange={e=>setQ(e.target.value)} placeholder="חיפוש לקוח, סוכן, סוכנות, יבואן..." className="w-full bg-slate-50 border rounded-xl px-4 py-3 outline-none"/>
+              <div className="flex gap-2">
+                <select value={agency} onChange={e=>setAgency(e.target.value)} className="bg-slate-50 border rounded-xl py-2.5 px-3 flex-1">
+                  <option value="All">כל הסוכנויות</option>
+                  {agencies.map(a=><option key={a}>{a}</option>)}
+                </select>
+                {user.role==='admin' && (
+                  <select value={mgr} onChange={e=>setMgr(e.target.value)} className="bg-slate-50 border rounded-xl py-2.5 px-3 flex-1">
+                    <option value="All">כל המנהלים</option>
+                    {managers.map(a=><option key={a}>{a}</option>)}
+                  </select>
+                )}
+              </div>
+              {user.role==='manager' && (
+                <label className="flex items-center gap-2 text-[15px] pt-1"><input type="checkbox" checked={showDone} onChange={e=>setShowDone(e.target.checked)} className="w-5 h-5"/> הצג גם שוברים שנמסרו</label>
+              )}
+            </div>
+
+            {loading && !data.length ? <Spinner/> : (
+              <div className="space-y-2">
+                {list.map(v=>(
+                  <div key={v.id} className={`rounded-2xl border p-3.5 flex items-center gap-3 shadow-sm ${leaving===v.id?'out':''} ${v.st===DONE?'bg-emerald-50 border-emerald-200':v.st===NO?'bg-red-50 border-red-200':'bg-white'}`}>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[17px] font-bold truncate">{v.customerName}</div>
+                      <div className="text-[14px] text-slate-600 truncate">{v.agency}{v.importer?` | ${v.importer}`:''}</div>
+                      <div className="text-[13px] text-slate-400 truncate">{v.agentName}{user.role==='admin'&&v.manager?` | ${v.manager}`:''}</div>
+                      {v.sync==='syncing' && <div className="text-[13px] font-bold text-amber-600 mt-1">שומר בגיליון...</div>}
+                      {v.sync==='failed' && <div className="text-[13px] font-bold text-red-600 mt-1">לא נשמר. <button className="underline" onClick={()=>push(v.id)}>נסה שוב</button></div>}
+                    </div>
+                    <div className="text-[19px] font-black whitespace-nowrap">{money(v.amount)}</div>
+                    <div className="w-11 flex justify-center">
+                      {v.st===DONE ? <span className="text-emerald-600">{Ic.check}</span>
+                       : v.st===NO ? <span className="text-red-500 font-black text-lg">X</span>
+                       : user.role==='admin'
+                         ? <button aria-label="לא נותנים" onClick={()=>setConfirm({id:v.id,status:NO,v})} className="w-11 h-11 rounded-xl bg-slate-100 text-red-500 flex items-center justify-center active:scale-90">{Ic.trash}</button>
+                         : <button aria-label="סמן כנמסר" onClick={()=>setConfirm({id:v.id,status:DONE,v})} className="w-11 h-11 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow active:scale-90">{Ic.check}</button>}
+                    </div>
+                  </div>
+                ))}
+                {!list.length && <div className="p-10 text-center text-slate-400 text-[16px]">אין שוברים להצגה</div>}
+              </div>
+            )}
+          </>
+        )}
+        {updatedAt && <div className="text-center text-[13px] text-slate-400">עודכן לאחרונה: {updatedAt.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}</div>}
+      </main>
+
+      {confirm && (
+        <div className="fixed inset-0 bg-black/50 z-[150] flex items-end sm:items-center justify-center p-4" onClick={()=>setConfirm(null)}>
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm text-center" onClick={e=>e.stopPropagation()}>
+            <div className="text-[19px] font-extrabold mb-1">{confirm.status===DONE?'לסמן כנמסר?':'לסמן "לא נותנים"?'}</div>
+            <div className="text-[16px] text-slate-600 mb-5">{confirm.v.customerName} | {money(confirm.v.amount)}</div>
+            <div className="flex gap-3">
+              <button onClick={()=>setConfirm(null)} className="flex-1 py-3.5 rounded-xl bg-slate-100 font-bold text-[16px]">ביטול</button>
+              <button onClick={()=>{act(confirm.id,confirm.status);setConfirm(null)}} className="flex-1 py-3.5 rounded-xl bg-[#262626] text-[#f6d19c] font-bold text-[16px]">אישור</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {toast && <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full shadow-xl text-[15px] font-bold z-[200] max-w-[92vw] text-center ${toast.bad?'bg-red-600 text-white':'bg-[#262626] text-[#f6d19c] border border-[#9c7229]'}`}>{toast.text}</div>}
+    </div>
+  );
+}
+
+const Spinner = () => <div className="p-12 text-center"><div className="w-8 h-8 border-4 border-[#9c7229] border-t-transparent spin rounded-full mx-auto"/></div>;
+
+function Login({onLogin}){
+  const [pin,setPin]=useState(''); const [err,setErr]=useState('');
+  const submit=()=>{
+    const p=pin.trim().toLowerCase();
+    if(p===ADMIN_CODE) onLogin({role:'admin',name:'מנהל מערכת'});
+    else if(AREA_MANAGERS[p]) onLogin({role:'manager',name:AREA_MANAGERS[p]});
+    else { setErr('קוד שגוי, נסה שוב'); setPin(''); setTimeout(()=>setErr(''),3000); }
+  };
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="bg-white p-8 rounded-[2rem] shadow-xl w-full max-w-[360px] text-center border-b-8 border-slate-200">
+        <Logo className="h-12 mx-auto mb-6"/>
+        <h1 className="text-[22px] font-black mb-5">כניסה למערכת</h1>
+        <input type="password" value={pin} onChange={e=>setPin(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} placeholder="קוד כניסה" className="w-full text-center text-2xl py-3 bg-slate-50 border-2 rounded-xl mb-2 outline-none focus:border-[#9c7229]"/>
+        {err && <p className="text-red-500 text-[15px] font-bold mb-2">{err}</p>}
+        <button onClick={submit} className="w-full bg-[#262626] text-[#f6d19c] py-4 rounded-xl font-bold text-[17px] shadow-lg active:scale-95 transition mt-2">התחברות</button>
+        <p className="text-[12px] text-slate-400 mt-6 pt-5 border-t">* כל הזכויות שמורות לקרדיבל פלוס בע״מ</p>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
 
